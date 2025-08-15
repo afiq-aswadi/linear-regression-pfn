@@ -1,0 +1,4 @@
+dotenv
+tqdm
+torch
+torch_xla

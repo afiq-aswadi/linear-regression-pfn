@@ -1,0 +1,20 @@
+[project]
+name = "linear-regression-pfn"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "einops>=0.8.1",
+    "jax>=0.7.0",
+    "jaxtyping>=0.3.2",
+    "matplotlib>=3.10.5",
+    "numpy>=2.3.2",
+    "torch>=2.8.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
+    "uv>=0.8.11",
+]
