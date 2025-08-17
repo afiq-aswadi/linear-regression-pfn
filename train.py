@@ -1,6 +1,9 @@
 """
 training the transformer on synthetic in-context regression task
 """
+
+#%%
+
 import torch
 from tqdm import tqdm
 import os
@@ -16,8 +19,8 @@ from samplers.tasks import DiscreteTaskDistribution, GaussianTaskDistribution
 device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
 
 
-
-def train(config: ModelConfig, training_config: dict):
+#%%
+def train(config: ModelConfig, training_config: dict, print_model_dimensionality: bool = False):
     """
     Initialise and train an InContextRegressionTransformer model, tracking
     various metrics.
@@ -25,8 +28,12 @@ def train(config: ModelConfig, training_config: dict):
 
     # model initialisation
     print("initialising model")
-    model = AutoregressivePFN(config).to(device)
+    model = AutoregressivePFN(config).to(device)    
     model.train()
+
+    if print_model_dimensionality:
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"Total number of parameters: {total_params:,}")
 
     # initialise 'pretraining' data source (for training on fixed task set)
     print("initialising data (pretrain)")
@@ -121,7 +128,8 @@ def train(config: ModelConfig, training_config: dict):
             tqdm.write(f"  {'batch/loss':<30}: {loss.item():.2f}")
         if step % training_config['print_metrics_interval'] == 0:
             model.eval()
-            metrics = evaluator(model)
+            with torch.no_grad():
+                metrics = evaluator(model)
             model.train()
             tqdm.write(f"step {step} metrics:")
             for metric, value in metrics.items():
@@ -129,16 +137,16 @@ def train(config: ModelConfig, training_config: dict):
 
     return model
 
-
+#%%
 if __name__ == "__main__":
     # Model architecture config
     model_config = ModelConfig(
-        d_model=64,
-        d_x=8,
+        d_model=32,
+        d_x=2,
         d_y=1,
-        n_layers=2,
-        n_heads=4,
-        d_mlp=256,
+        n_layers=1,
+        n_heads=2,
+        d_mlp=128,
         d_vocab=128,
         n_ctx=32  # 2 * num_examples
     )
@@ -146,17 +154,19 @@ if __name__ == "__main__":
     # Training hyperparameters
     training_config = {
         'device': 'mps',
-        'task_size': 8,
+        'task_size': 2,
         'num_tasks': 8,
         'noise_var': .25,
         'num_examples': 16,
         'learning_rate': 0.003,
-        'training_steps': 1024,
+        'training_steps': 2 ** 12,
         'batch_size': 256,
         'eval_batch_size': 1024,
         'print_loss_interval': 100,
         'print_metrics_interval': 1000,
     }
     
-    _model = train(model_config, training_config)
+    _model = train(model_config, training_config, print_model_dimensionality=True)
 
+
+# %%

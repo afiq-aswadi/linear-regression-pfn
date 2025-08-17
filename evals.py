@@ -1,8 +1,10 @@
 import functools
+import torch
 
 from baselines import dmmse_predictor, ridge_predictor
 from samplers.tasks import DiscreteTaskDistribution, GaussianTaskDistribution
 from samplers.tasks import RegressionSequenceDistribution
+from models.model import bin_y_values, unbin_y_values
 
 
 def mse(y1, y2, axis=None):
@@ -20,6 +22,33 @@ def mse(y1, y2, axis=None):
       last dimensions (e.g., `mse(ys1, ys2, axis=(0, 2))`).
     """
     return (y1 - y2).square().mean(axis=axis)
+
+
+def logits_to_predictions(logits, y_min=-3.0, y_max=3.0):
+    """
+    Convert logits over y-value buckets to continuous predictions using weighted average.
+    
+    Args:
+        logits: logits of shape [batch, num_examples, d_vocab] 
+        y_min, y_max: range for binning
+        
+    Returns:
+        predictions: continuous y predictions of shape [batch, num_examples, 1]
+    """
+    batch_size, num_examples, n_bins = logits.shape
+    
+    # Get softmax probabilities
+    probs = torch.softmax(logits, dim=-1)  # [batch, num_examples, d_vocab]
+    
+    # Create bin centers
+    bin_width = (y_max - y_min) / n_bins
+    bin_centers = torch.linspace(y_min + bin_width/2, y_max - bin_width/2, n_bins, device=logits.device)
+    bin_centers = bin_centers.view(1, 1, -1)  # [1, 1, d_vocab]
+    
+    # Weighted average: sum over probabilities * bin_centers 
+    predictions = torch.sum(probs * bin_centers, dim=-1, keepdim=True)  # [batch, num_examples, 1]
+    
+    return predictions
 
 
 class ICLEvaluator:
@@ -69,20 +98,28 @@ class ICLEvaluator:
         Evaluate a model against stored batches, returning a dictionary of
         various metrics.
         """
-        # compute model predictions and loss on fixed batch from T_pretrain
-        pretrain_model_preds = model(self.pretrain_xs, self.pretrain_ys)
+        # compute model logits and convert to predictions on fixed batch from T_pretrain
+        pretrain_logits = model(self.pretrain_xs, self.pretrain_ys)
+        # Extract logits for y predictions (odd indices only)
+        pretrain_y_logits = pretrain_logits[:, 1::2]  # [batch, num_examples, d_vocab]
+        pretrain_model_preds = logits_to_predictions(pretrain_y_logits)
         pretrain_model_losses = mse(
             self.pretrain_ys,
             pretrain_model_preds,
             axis=(0,2),
         )
-        # compute model predictions and loss on fixed batch from T_true
-        true_model_preds = model(self.true_xs, self.true_ys)
+        
+        # compute model logits and convert to predictions on fixed batch from T_true
+        true_logits = model(self.true_xs, self.true_ys)
+        # Extract logits for y predictions (odd indices only) 
+        true_y_logits = true_logits[:, 1::2]  # [batch, num_examples, d_vocab]
+        true_model_preds = logits_to_predictions(true_y_logits)
         true_model_losses = mse(
             self.true_ys,
             true_model_preds,
             axis=(0,2),
         )
+        
         # compute and return various metrics based on above
         k = len(pretrain_model_losses)
         return {

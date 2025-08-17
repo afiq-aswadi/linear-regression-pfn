@@ -1,13 +1,13 @@
 #%%
 import torch.nn as nn
-from model_config import Config
+from .model_config import ModelConfig
 from jaxtyping import Float, Array
 
 class JointEmbedding(nn.Module):
     """ 
     Gets joint embedding of x and y by summing the embeddings of x and y.
     """
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.x_embedding = XEmbedding(cfg)
         self.y_embedding = YEmbedding(cfg)
@@ -25,7 +25,7 @@ class XEmbedding(nn.Module):
     """
     Embeds x values into embedding space.
     """
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.embedding = nn.Linear(cfg.d_x, cfg.d_model)
 
@@ -36,7 +36,7 @@ class YEmbedding(nn.Module):
     """
     Embeds y values into embedding space. Typically y is a scalar, so input_dim = 1. Note these are continuous embeddings rather than discrete like in language models.
     """
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.embedding = nn.Linear(cfg.d_y, cfg.d_model)
 
@@ -48,7 +48,7 @@ class Unembed(nn.Module):
     """
     Unembeds the model output into the y space. We only train on even indices.
     """
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.unembedding = nn.Linear(cfg.d_model, cfg.d_vocab)
 

@@ -4,10 +4,10 @@ import torch.nn as nn
 from jaxtyping import Float, Array
 
 from dataclasses import dataclass
-from pfn_embedding import JointEmbedding, Unembed
-from autoregressive_pfn_attention import PFNAttention
+from .pfn_embedding import JointEmbedding, Unembed
+from .autoregressive_pfn_attention import PFNAttention
 
-from model_config import ModelConfig
+from .model_config import ModelConfig
 
 #%%   
 
