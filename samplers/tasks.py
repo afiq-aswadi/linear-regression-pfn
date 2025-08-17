@@ -172,6 +172,19 @@ class TaskDistribution:
         return self
 
 
+    def save(self, file_path: str):
+        """
+        Save the task distribution to a file. Subclasses should override this
+        method to persist their specific state.
+
+        Parameters:
+
+        * `file_path : str`
+            path to save the task distribution state to (using torch.save)
+        """
+        raise NotImplementedError
+
+
 class DiscreteTaskDistribution(TaskDistribution):
     """
     Represent a fixed finite number of regression tasks `num_tasks` each of
@@ -250,6 +263,16 @@ class DiscreteTaskDistribution(TaskDistribution):
         return super().to(device)
 
 
+    def save(self, file_path: str):
+        state = {
+            'type': 'discrete',
+            'task_size': self.task_size,
+            'num_tasks': self.num_tasks,
+            'tasks': self.tasks.detach().cpu(),
+        }
+        torch.save(state, file_path)
+
+
 class GaussianTaskDistribution(TaskDistribution):
     """
     Represent a gaussian distribution over of all possible regression tasks
@@ -295,6 +318,14 @@ class GaussianTaskDistribution(TaskDistribution):
             device=self.device,
         )
         return tasks
+
+
+    def save(self, file_path: str):
+        state = {
+            'type': 'gaussian',
+            'task_size': self.task_size,
+        }
+        torch.save(state, file_path)
     
 
 class SingletonTaskDistribution(TaskDistribution):
@@ -357,3 +388,12 @@ class SingletonTaskDistribution(TaskDistribution):
         """
         self.task = self.task.to(device)
         return super().to(device)
+
+
+    def save(self, file_path: str):
+        state = {
+            'type': 'singleton',
+            'task_size': self.task_size,
+            'task': self.task.detach().cpu(),
+        }
+        torch.save(state, file_path)

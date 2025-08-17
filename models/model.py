@@ -51,6 +51,44 @@ def construct_sequence(x: Float[Array, "batch n_x d_x"], y: Float[Array, "batch 
     
     return x_seq, y_seq
 
+def bin_y_values(y: t.Tensor, y_min: float = -3.0, y_max: float = 3.0, n_bins: int = 128) -> t.Tensor:
+    """
+    Convert continuous y values to discrete bin indices.
+    
+    Args:
+        y: continuous y values of shape [batch, num_examples, d_y] 
+        y_min, y_max: range for binning
+        n_bins: number of bins (should match d_vocab in config)
+    
+    Returns:
+        bin_indices: discrete indices of shape [batch, num_examples]
+    """
+    # Clamp values to be within range
+    y_clamped = t.clamp(y.squeeze(-1), y_min, y_max)
+    
+    # Convert to bin indices
+    bin_width = (y_max - y_min) / n_bins
+    bin_indices = ((y_clamped - y_min) / bin_width).long()
+    bin_indices = t.clamp(bin_indices, 0, n_bins - 1)
+    
+    return bin_indices
+
+def unbin_y_values(bin_indices: t.Tensor, y_min: float = -3.0, y_max: float = 3.0, n_bins: int = 128) -> t.Tensor:
+    """
+    Convert discrete bin indices back to continuous y values.
+    
+    Args:
+        bin_indices: discrete indices of shape [batch, num_examples]
+        y_min, y_max: range for binning  
+        n_bins: number of bins
+        
+    Returns:
+        y: continuous y values of shape [batch, num_examples, 1]
+    """
+    bin_width = (y_max - y_min) / n_bins
+    y_continuous = y_min + (bin_indices.float() + 0.5) * bin_width  # Use bin centers
+    return y_continuous.unsqueeze(-1)
+
 
 class Transformer(nn.Module):
     def __init__(self, cfg: ModelConfig):
