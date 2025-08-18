@@ -14,6 +14,8 @@ class ModelConfig:
     n_heads: int = 2
     d_head: int = d_model // n_heads #from my understanding should be d_model / n_heads
     n_layers: int = 4
+    y_min: float = -3.0
+    y_max: float = 3.0
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ class AutoregressivePFN(nn.Module):
         self.transformer = Transformer(cfg)
 
     def forward(self, x: Float[Array, "batch n_x d_x"], y: Float[Array, "batch n_y d_y"]) -> Float[Array, "batch position d_vocab"]:
+        assert x.shape[0] == y.shape[0], "x and y must have the same batch size" # this can probably broadcast but wtv
+        assert x.shape[1] == y.shape[1], "x and y must have the same number of points"
         x_seq, y_seq = construct_sequence(x, y)
         residual = self.embed(x_seq, y_seq)
         return self.transformer(residual)
@@ -28,6 +30,15 @@ class AutoregressivePFN(nn.Module):
     
     def get_x_embedding(self, x: Float[Array, "batch n_x d_x"]) -> Float[Array, "batch n_x d_model"]:
         return self.embed.get_x_embedding(x)
+
+    def save(self, path: str):
+        t.save(self.state_dict(), path)
+    
+    @classmethod
+    def load(cls, path: str):
+        model = cls(ModelConfig())
+        model.load_state_dict(t.load(path))
+        return model
 
 def construct_sequence(x: Float[Array, "batch n_x d_x"], y: Float[Array, "batch n_y d_y"]) -> tuple[Float[Array, "batch position d_x"], Float[Array, "batch position d_y"]]:
     """
