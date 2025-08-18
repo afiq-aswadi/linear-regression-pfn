@@ -172,7 +172,7 @@ if __name__ == "__main__":
     
     # Training hyperparameters
     training_config = {
-        'device': 'mps',
+        'device': 'cuda',
         'task_size': 2,
         'num_tasks': 2 ** 16,
         'noise_var': .25,
@@ -186,12 +186,14 @@ if __name__ == "__main__":
         'n_checkpoints': 3,
     }
     
-    run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, plot_checkpoints=False)
+    # run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, plot_checkpoints=False)
 
 
 # %%
 from predictive_resampling.predictive_resampling_plots import plot_predictive_resampling_from_checkpoints
 
+checkpoints_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
+run_id = '20250818_124433'
 
 beta_trajectories, w_pool = plot_predictive_resampling_from_checkpoints(
     checkpoints_dir=checkpoints_dir,

@@ -15,6 +15,7 @@ def predictive_resampling_beta(
     sample_y: bool = True,
     init_x: torch.Tensor = None,  # optional prefix buffer (batch of 1 or None)
     init_y: torch.Tensor = None,  # optional prefix buffer (batch of 1 or None)
+    save_y: bool = False,
 ) -> np.ndarray:
     """
     If init_tokens is None: behavior with fresh X ~ N(0,I).
@@ -49,22 +50,23 @@ def predictive_resampling_beta(
         y = y_prefix
 
     for k in range(K_init, T-1):
-        ctx_x = X[:,:k+1,:]
-        
-        # ctx_y should contain all the y values we have so far, 
-        # plus zero padding if we need more to match ctx_x length
+        ctx_x = X[:, :k+1, :]
+
+        # Ensure y has a zero placeholder appended for the current step,
+        # then pass that as context and replace the placeholder with the sample.
         current_y_len = y.shape[1]
         needed_len = k + 1
-        
-        if current_y_len >= needed_len:
-            ctx_y = y[:,:needed_len,:]
-        else:
-            # Pad with zeros to match the required length
+
+        if current_y_len < needed_len:
             pad_len = needed_len - current_y_len
-            assert pad_len == 1, "wtf? pad_len is not 1"
+            assert pad_len == 1, "expected to pad exactly one step"
             pad_tensor = torch.zeros(B, pad_len, config.d_y, device=device)
-            ctx_y = torch.cat([y, pad_tensor], dim=1)
-            
+            y = torch.cat([y, pad_tensor], dim=1)
+        elif current_y_len > needed_len:
+            # Should not happen; truncate defensively
+            y = y[:, :needed_len, :]
+
+        ctx_y = y[:, :needed_len, :]
         assert ctx_x.shape[1] == ctx_y.shape[1], "ctx_x and ctx_y must have the same length"
 
         model_output = model(ctx_x, ctx_y)
@@ -83,7 +85,8 @@ def predictive_resampling_beta(
             y_cls = torch.argmax(probs, dim=-1)
             y_sample = unbin_y_values(y_cls.unsqueeze(-1), config.y_min, config.y_max, config.d_vocab)
 
-        y = torch.cat([y, y_sample], dim=1)
+        # Replace the last zero placeholder with the sampled/argmax value
+        y[:, -1:, :] = y_sample
 
     # # 3) sample y for steps k = K_init … T-1
     # for k in range(K_init, T - 1):
@@ -109,21 +112,26 @@ def predictive_resampling_beta(
             entropy = -(probs * probs.log()).sum(dim=-1).mean().item()
             print(f"[Step {k}] Average predictive entropy: {entropy:.2f}")
 
+    # 4) final y_T prediction: append a zero placeholder then replace it
+    if y.shape[1] < T:
+        pad_len = T - y.shape[1]
+        assert pad_len == 1, "expected to pad exactly one step at final prediction"
+        y = torch.cat([y, torch.zeros(B, pad_len, config.d_y, device=device)], dim=1)
+    elif y.shape[1] > T:
+        y = y[:, :T, :]
 
-    # 4) final y_T prediction
     final_model_output = model(X, y)
     if final_model_output.shape[1] >= 2:
         final_logits = final_model_output[:, -2, :]
     else:
-        # Fallback for edge cases
         final_logits = final_model_output[:, -1, :]
-    yT_cls = torch.argmax(final_logits, dim=-1) #why we argmax here?
+    final_probs = torch.softmax(final_logits, dim=-1)
+    if sample_y:
+        yT_cls = torch.multinomial(final_probs, 1).squeeze(-1)
+    else:
+        yT_cls = torch.argmax(final_probs, dim=-1)
     yT_real = unbin_y_values(yT_cls.unsqueeze(-1), config.y_min, config.y_max, config.d_vocab)
-    y = torch.cat([y, yT_real], dim=1)
-
-    # Remove the initial padding zero when there was no init
-    if K_init == 0:
-        y = y[:, 1:, :]  # Remove the first element (the initial zero)
+    y[:, -1:, :] = yT_real
     try:
         beta_hat = torch.linalg.lstsq(X, y).solution.squeeze(-1)  # (B, D)
     except Exception as e:
@@ -143,7 +151,10 @@ def predictive_resampling_beta(
             X_pinv = torch.linalg.pinv(X)  # [B, D, T]
             beta_hat = torch.bmm(X_pinv, y).squeeze(-1)  # [B, D]
 
-    return beta_hat.cpu().numpy()
+    if save_y:
+        return beta_hat.cpu().numpy(), y.cpu().numpy()
+    else:
+        return beta_hat.cpu().numpy()
 
 @torch.no_grad()
 def predictive_resampling_beta_chunked(
