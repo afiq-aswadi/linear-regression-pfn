@@ -100,8 +100,8 @@ class ICLEvaluator:
         """
         # compute model logits and convert to predictions on fixed batch from T_pretrain
         pretrain_logits = model(self.pretrain_xs, self.pretrain_ys)
-        # Extract logits for y predictions (odd indices only)
-        pretrain_y_logits = pretrain_logits[:, 1::2]  # [batch, num_examples, d_vocab]
+        # Extract logits for y predictions (**even** indices only)
+        pretrain_y_logits = pretrain_logits[:, 0::2]  # [batch, num_examples, d_vocab]
         pretrain_model_preds = logits_to_predictions(pretrain_y_logits)
         pretrain_model_losses = mse(
             self.pretrain_ys,
@@ -111,8 +111,8 @@ class ICLEvaluator:
         
         # compute model logits and convert to predictions on fixed batch from T_true
         true_logits = model(self.true_xs, self.true_ys)
-        # Extract logits for y predictions (odd indices only) 
-        true_y_logits = true_logits[:, 1::2]  # [batch, num_examples, d_vocab]
+        # Extract logits for y predictions (**even** indices only) 
+        true_y_logits = true_logits[:, 0::2]  # [batch, num_examples, d_vocab]
         true_model_preds = logits_to_predictions(true_y_logits)
         true_model_losses = mse(
             self.true_ys,
