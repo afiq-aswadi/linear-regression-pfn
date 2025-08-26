@@ -7,48 +7,31 @@ This script tests the unconditional predictive resampling method on a trained tr
 from models.model import AutoregressivePFN, bin_y_values, unbin_y_values, construct_sequence
 from models.model_config import ModelConfig
 from predictive_resampling.predictive_resampling import predictive_resampling_beta_chunked, predictive_resampling_beta
+from experiments.experiment_utils import (
+    get_device,
+    get_checkpoints_dir,
+    load_model_from_checkpoint,
+)
+from experiments.experiment_configs import (
+    RAVENTOS_SWEEP_MODEL_CONFIG,
+)
+device = get_device()
 
-device = 'cuda'
 
 
 #%%
-model_config = ModelConfig(
-        d_model=64,
-        d_x=2,
-        d_y=1,
-        n_layers=2,
-        n_heads=2,
-        d_mlp=4 * 64,
-        d_vocab=64
-        n_ctx=128  # 2 * num_examples
-    )
-    
-    # Training hyperparameters
-training_config = {
-        'device': 'cuda',
-        'task_size': 2,
-        'num_tasks': 2 ** 16,
-        'noise_var': .25,
-        'num_examples': 64,
-        'learning_rate': 0.003,
-        'training_steps': 100000,
-        'batch_size': 256,
-        'eval_batch_size': 1024,
-        'print_loss_interval': 100,
-        'print_metrics_interval': 1000,
-        'n_checkpoints': 3,
-    }
+model_config = RAVENTOS_SWEEP_MODEL_CONFIG
 
 #%%
 
-model = AutoregressivePFN(model_config).to(device)
+model = None
 import os
 import torch
 
 # insert checkpoint path here
-checkpoint_path = os.path.join('checkpoints', '20250818_124433_model_checkpoint_3.pt')
-checkpoint = torch.load(checkpoint_path, map_location='cuda')
-model.load_state_dict(checkpoint)
+CHECKPOINTS_DIR = get_checkpoints_dir()
+checkpoint_path = os.path.join(CHECKPOINTS_DIR, '20250818_124433_model_checkpoint_3.pt')
+model = load_model_from_checkpoint(model_config, checkpoint_path, device=device)
 
 #%%
 

@@ -8,6 +8,7 @@ import torch
 from tqdm import tqdm
 import os
 from datetime import datetime
+import numpy as np
 
 from evals import ICLEvaluator
 from models.model import AutoregressivePFN, bin_y_values, unbin_y_values
@@ -19,10 +20,12 @@ device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is
 
 
 #%%
-def train(config: ModelConfig, training_config: dict, print_model_dimensionality: bool = False, plot_checkpoints: bool = False, debug: bool = False):
+def train(config: ModelConfig, training_config: dict, print_model_dimensionality: bool = False, logarithmic_checkpoints: bool = False):
     """
     Initialise and train an InContextRegressionTransformer model, tracking
     various metrics.
+
+    If logarithmic_checkpoints is True, the checkpoints will be saved at logarithmic intervals for the first 20% of training.
     """
 
     # model initialisation
@@ -125,35 +128,23 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
         if step % training_config['print_loss_interval'] == 0:
             tqdm.write(f"step {step} loss:")
             tqdm.write(f"  {'batch/loss':<30}: {loss.item():.2f}")
-        # if step % training_config['print_metrics_interval'] == 0:
-        #     model.eval()
-        #     with torch.no_grad():
-        #         metrics = evaluator(model)
-        #     model.train()
-        #     tqdm.write(f"step {step} metrics:")
-        #     for metric, value in metrics.items():
-        #         tqdm.write(f"  {metric:<30}: {value:.2f}")
-        # save model checkpoints
+
         if training_config['n_checkpoints'] is not None:
-            checkpoint_interval = training_config['training_steps'] // training_config['n_checkpoints']
-            if step % checkpoint_interval == 0:
-                model.save(os.path.join(checkpoints_dir, f"{run_id}_model_checkpoint_{step//checkpoint_interval}.pt"))
-                if plot_checkpoints:
-                    try:
-                        from predictive_resampling.predictive_resampling_plots import plot_predictive_resampling_from_checkpoints
-                        print(f"\nGenerating predictive resampling plots at step {step}...")
-                        beta_trajectories, w_pool = plot_predictive_resampling_from_checkpoints(
-                            checkpoints_dir=checkpoints_dir,
-                            run_id=run_id,
-                            config=config,
-                            training_config=training_config,
-                            forward_recursion_steps=64,
-                            forward_recursion_samples=1000,
-                            chunk_size=200
-                        )
-                        print(f"Generated plots for {len(beta_trajectories)} checkpoints with W_pool shape: {w_pool.shape}")
-                    except Exception as e:
-                        print(f"Warning: Could not generate predictive resampling plots: {e}")
+            if logarithmic_checkpoints:
+                if step == 0:  # Compute checkpoint steps once at the beginning
+                    log_steps = np.logspace(0, np.log10(training_config['training_steps']*0.2), num=training_config['n_checkpoints'])
+                    log_steps = np.round(log_steps).astype(int)
+                    linear_steps = np.arange(int(training_config['training_steps']*0.2), training_config['training_steps'], 10000, dtype=int)
+                    checkpoint_steps = sorted(list(set(log_steps) | set(linear_steps) | {training_config['training_steps'] - 1}))
+                    checkpoint_steps_set = set(checkpoint_steps)
+                    globals()['checkpoint_steps_set'] = checkpoint_steps_set  # Store for reuse
+                
+                if step in globals().get('checkpoint_steps_set', set()):
+                    model.save(os.path.join(checkpoints_dir, f"{run_id}_model_step_{step}.pt"))
+            else:
+                checkpoint_interval = training_config['training_steps'] // training_config['n_checkpoints']
+                if step % checkpoint_interval == 0:
+                    model.save(os.path.join(checkpoints_dir, f"{run_id}_model_step_{step}.pt"))
 
     return run_id, model, checkpoints_dir
 
@@ -181,13 +172,15 @@ if __name__ == "__main__":
         'noise_var': .25,
         'num_examples': 64,
         'learning_rate': 0.003,
-        'training_steps': 50000,
+        'training_steps': 1000,
         'batch_size': 256,
         'eval_batch_size': 1024,
         'print_loss_interval': 100,
         'print_metrics_interval': 1000,
-        'n_checkpoints': 5,
+        'n_checkpoints': 10,
     }
     
-    run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, plot_checkpoints=True)
+    run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, logarithmic_checkpoints=True)
 
+
+# %%

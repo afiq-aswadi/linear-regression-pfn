@@ -1,5 +1,7 @@
 """
-Some cheap experiments to make sure models are trained properly.
+Across checkpoints, plot distribution of model outputs for sampled prompts from either true or general distributions.
+
+TODO: check why ridge is so close to dMMSE?
 """
 #%%
 
@@ -10,69 +12,46 @@ from models.model import AutoregressivePFN
 from models.model_config import ModelConfig
 from samplers.tasks import load_task_distribution_from_pt, RegressionSequenceDistribution
 from baselines import dmmse_predictor, ridge_predictor
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-#%%
-
-model_config = ModelConfig(
-    d_model=64,
-    d_x=2,
-    d_y=1,
-    n_layers=2,
-    n_heads=2,
-    d_mlp=4 * 64,
-    d_vocab=64,
-    n_ctx=128
+from experiments.experiment_utils import (
+    get_device,
+    get_checkpoints_dir,
+    build_checkpoint_path,
+    get_pretrain_distribution_path,
+    get_true_distribution_path,
+    load_model_from_checkpoint,
+)
+from experiments.experiment_configs import (
+    RAVENTOS_SWEEP_MODEL_CONFIG,
+    RUNS,
+    CHECKPOINTS_DIR,
+    PLOTS_DIR
 )
 
-y_min = -3.0
-y_max = 3.0
-n_bins = 64
-
-indices = torch.linspace(y_min, y_max, n_bins)
+device = get_device()
+model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.n_bins)
 
 #%%
-BASE_DIR = os.path.dirname(__file__)
-CHECKPOINTS_DIR = os.path.join(BASE_DIR, "checkpoints")
-
-#%%
-RUNS = {
-    # "m1": {"run_id": "20250818_143023", "task_size": 1, "ckpts": [0, 1, 2, 3, 4]},
-    # "m2": {"run_id": "20250818_170107", "task_size": 16, "ckpts": [0, 1, 2, 3, 4]},
-     "m3": {"run_id": "20250818_194416", "task_size": 256, "ckpts": [4]},
-    # "m4": {"run_id": "20250818_222551", "task_size": 4096, "ckpts": [0, 1, 2, 3, 4]},
-    # "m5": {"run_id": "20250819_010712", "task_size": 65536, "ckpts": [0, 1, 2, 3, 4]},
-    # "m6": {"run_id": "20250819_034904", "task_size": 1048576, "ckpts": [0, 1, 2, 3, 4]},
-    # "m7": {"run_id": "20250826_020546", "task_size": 2, "ckpts": [4]},
-}
-
-batch_size = 4
+batch_size = 4 #number of batches to plot
+NOISE_VARIANCE = 0
+prompt_len = 64
 
 #%%
 # Use a single noise variance for all runs; included in plot titles NOTE: These are sampling from true distribution.
-NOISE_VARIANCE = 0
 
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 
 def _load_distribution_paths(run_id: str, task_size: int):
-    pretrain_path = os.path.join(
-        CHECKPOINTS_DIR,
-        f"{run_id}_pretrain_discrete_{task_size}tasks_2d.pt",
-    )
-    general_path = os.path.join(
-        CHECKPOINTS_DIR,
-        f"{run_id}_true_gaussian_2d.pt",
-    )
+    pretrain_path = get_pretrain_distribution_path(CHECKPOINTS_DIR, run_id, task_size)
+    general_path = get_true_distribution_path(CHECKPOINTS_DIR, run_id)
     return pretrain_path, general_path
 
 
 def _compute_model_outputs_for_ckpt(run_id: str, ckpt_idx: int, xs: torch.Tensor, ys: torch.Tensor):
-    model = AutoregressivePFN(model_config).to(device)
-    model_path = os.path.join(CHECKPOINTS_DIR, f"{run_id}_model_checkpoint_{ckpt_idx}.pt")
-    state = torch.load(model_path, map_location=device)
-    model.load_state_dict(state)
+    model_path = build_checkpoint_path(CHECKPOINTS_DIR, run_id, ckpt_idx)
+    model = load_model_from_checkpoint(model_config, model_path, device=device)
 
     logits = model(xs, ys)
     last_logit = logits[:, -2, :]
@@ -92,6 +71,7 @@ def _plot_grid_across_checkpoints(
     probs_per_ckpt: list,
     model_means_per_ckpt: list,
     title_suffix: str,
+    save_plot: bool = True,
 ):
     final_y = ys[:, -1, :]
     n_batches = xs.shape[0]
@@ -138,7 +118,10 @@ def _plot_grid_across_checkpoints(
             ax.legend(loc="upper right", fontsize=8)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.show()
+    if save_plot:
+        plt.savefig(os.path.join(PLOTS_DIR, f"{run_key}_{title_suffix}.png"))
+    else:
+        plt.show()
 
 
 # Iterate over all configured runs and evaluate across checkpoints
@@ -154,7 +137,7 @@ for run_key, run_info in RUNS.items():
     regression_sequence_distribution = RegressionSequenceDistribution(
         pretrain_task_distribution, noise_variance=NOISE_VARIANCE
     ).to(device)
-    xs, ys = regression_sequence_distribution.get_batch(num_examples=64, batch_size=batch_size)
+    xs, ys = regression_sequence_distribution.get_batch(num_examples=prompt_len, batch_size=batch_size)
     xs = xs.to(device)
     ys = ys.to(device)
 
@@ -185,7 +168,7 @@ for run_key, run_info in RUNS.items():
     regression_sequence_distribution = RegressionSequenceDistribution(
         general_task_distribution, noise_variance=NOISE_VARIANCE
     ).to(device)
-    xs, ys = regression_sequence_distribution.get_batch(num_examples=64, batch_size=batch_size)
+    xs, ys = regression_sequence_distribution.get_batch(num_examples=prompt_len, batch_size=batch_size)
     xs = xs.to(device)
     ys = ys.to(device)
 
