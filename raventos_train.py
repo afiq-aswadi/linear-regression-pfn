@@ -53,7 +53,6 @@ def train_single_config(args_tuple):
         config=model_cfg,
         training_config=training_cfg,
         print_model_dimensionality=False,
-        plot_checkpoints=False,
     )
     
     # Move back to CPU for evaluation to save GPU memory
@@ -261,8 +260,9 @@ def run_sweep_parallel(
             device_id = i % num_gpus  # Round-robin GPU assignment
             configs.append((num_tasks, task_size, model_cfg, base_training_cfg, device_id))
     
-    # Run in parallel
-    with mp.Pool(processes=num_gpus) as pool:
+    # Run in parallel using spawn start method (CUDA-safe)
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(processes=num_gpus) as pool:
         results = pool.map(train_single_config, configs)
     
     return num_tasks_list, results
@@ -409,6 +409,7 @@ def main():
         "print_loss_interval": max(50, args.steps // 50),
         "print_metrics_interval": max(200, args.steps // 10),
         "n_checkpoints": args.checkpoints,
+        "logarithmic_checkpoints": True,
     }
 
     # Run sweep in parallel or serial mode

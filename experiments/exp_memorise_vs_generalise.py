@@ -9,12 +9,10 @@ import os
 import torch
 
 from models.model import AutoregressivePFN
-from models.model_config import ModelConfig
 from samplers.tasks import load_task_distribution_from_pt, RegressionSequenceDistribution
 from baselines import dmmse_predictor, ridge_predictor
 from experiments.experiment_utils import (
     get_device,
-    get_checkpoints_dir,
     build_checkpoint_path,
     get_pretrain_distribution_path,
     get_true_distribution_path,
@@ -43,9 +41,9 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 
-def _load_distribution_paths(run_id: str, task_size: int):
-    pretrain_path = get_pretrain_distribution_path(CHECKPOINTS_DIR, run_id, task_size)
-    general_path = get_true_distribution_path(CHECKPOINTS_DIR, run_id)
+def _load_distribution_paths(run_id: str, num_tasks: int, task_size: int):
+    pretrain_path = get_pretrain_distribution_path(CHECKPOINTS_DIR, run_id, num_tasks, task_size)
+    general_path = get_true_distribution_path(CHECKPOINTS_DIR, run_id, task_size)
     return pretrain_path, general_path
 
 
@@ -129,7 +127,7 @@ for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
     ckpt_indices = run_info["ckpts"]
 
-    pretrain_path, general_path = _load_distribution_paths(run_id, run_info["task_size"])
+    pretrain_path, general_path = _load_distribution_paths(run_id, run_info["num_tasks"], RAVENTOS_SWEEP_MODEL_CONFIG.d_x)
     pretrain_task_distribution = load_task_distribution_from_pt(pretrain_path, device=device)
     general_task_distribution = load_task_distribution_from_pt(general_path, device=device)
 
