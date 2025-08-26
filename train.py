@@ -38,6 +38,11 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
 
     If logarithmic_checkpoints is True, the checkpoints will be saved at logarithmic intervals for the first 20% of training.
     """
+    
+    # Pre-compute checkpoint steps if using logarithmic checkpoints
+    checkpoint_steps_set = None
+    if training_config.get('n_checkpoints') is not None and training_config.get('logarithmic_checkpoints', False):
+        checkpoint_steps_set = train_logarithmic_checkpoints(training_config['training_steps'], training_config['n_checkpoints'])
 
     # model initialisation
     print("initialising model")
@@ -141,12 +146,8 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
             tqdm.write(f"  {'batch/loss':<30}: {loss.item():.2f}")
 
         if training_config['n_checkpoints'] is not None:
-            if training_config['logarithmic_checkpoints']:
-                if step == 0:  # Compute checkpoint steps once at the beginning
-                    checkpoint_steps_set = train_logarithmic_checkpoints(training_config['training_steps'], training_config['n_checkpoints'])
-                    globals()['checkpoint_steps_set'] = checkpoint_steps_set  # Store for reuse
-                
-                if step in globals().get('checkpoint_steps_set', set()):
+            if training_config.get('logarithmic_checkpoints', False):
+                if step in checkpoint_steps_set:
                     model.save(os.path.join(checkpoints_dir, f"{run_id}_model_step_{step}.pt"))
             else:
                 checkpoint_interval = training_config['training_steps'] // training_config['n_checkpoints']

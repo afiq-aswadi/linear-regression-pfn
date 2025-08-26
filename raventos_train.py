@@ -19,7 +19,7 @@ TODO: parallelise training.
 import argparse
 import os
 from typing import Dict, List, Tuple
-import multiprocessing as mp
+import torch.multiprocessing as mp
 
 import torch
 import matplotlib.pyplot as plt
