@@ -19,6 +19,7 @@ TODO: parallelise training.
 import argparse
 import os
 from typing import Dict, List, Tuple
+import multiprocessing as mp
 
 import torch
 import matplotlib.pyplot as plt
@@ -31,6 +32,47 @@ from samplers.tasks import (
     GaussianTaskDistribution,
     RegressionSequenceDistribution,
 )
+
+
+def train_single_config(args_tuple):
+    """Train a single model configuration on a specific GPU"""
+    (num_tasks, task_size, model_cfg, base_training_cfg, device_id) = args_tuple
+    
+    # Set specific GPU
+    device = f"cuda:{device_id}"
+    torch.cuda.set_device(device_id)
+    
+    training_cfg = dict(base_training_cfg)
+    training_cfg["task_size"] = task_size
+    training_cfg["num_tasks"] = int(num_tasks)
+    training_cfg["device"] = device
+    
+    print(f"Training on GPU {device_id}: num_tasks={num_tasks}, task_size={task_size}")
+    
+    run_id, model, checkpoints_dir = train_once(
+        config=model_cfg,
+        training_config=training_cfg,
+        print_model_dimensionality=False,
+        plot_checkpoints=False,
+    )
+    
+    # Move back to CPU for evaluation to save GPU memory
+    model = model.cpu()
+    
+    metrics = evaluate_run(
+        run_id=run_id,
+        checkpoints_dir=checkpoints_dir,
+        model=model,
+        task_size=task_size,
+        noise_var=training_cfg["noise_var"],
+        num_examples=training_cfg["num_examples"],
+        eval_batch_size=training_cfg["eval_batch_size"],
+        device="cpu",  # Eval on CPU
+    )
+    
+    metrics["num_tasks"] = int(num_tasks)
+    metrics["task_size"] = int(task_size)
+    return metrics
 
 
 def load_task_distribution_from_pt(file_path: str, device: str = "cpu"):
@@ -194,6 +236,38 @@ def run_sweep(
     return num_tasks_list, results
 
 
+def run_sweep_parallel(
+    task_sizes: List[int],
+    num_tasks_list: List[int],
+    model_cfg: ModelConfig,
+    base_training_cfg: Dict,
+    num_gpus: int = None,
+) -> Tuple[List[int], List[Dict[str, float]]]:
+    """
+    Run the sweep in parallel across multiple GPUs.
+    """
+    if num_gpus is None:
+        num_gpus = torch.cuda.device_count()
+    
+    if num_gpus == 0:
+        raise RuntimeError("No CUDA GPUs available for parallel training")
+    
+    print(f"Using {num_gpus} GPUs for parallel training")
+    
+    # Create all training configs
+    configs = []
+    for task_size in task_sizes:
+        for i, num_tasks in enumerate(num_tasks_list):
+            device_id = i % num_gpus  # Round-robin GPU assignment
+            configs.append((num_tasks, task_size, model_cfg, base_training_cfg, device_id))
+    
+    # Run in parallel
+    with mp.Pool(processes=num_gpus) as pool:
+        results = pool.map(train_single_config, configs)
+    
+    return num_tasks_list, results
+
+
 def plot_results(num_tasks_list: List[int], results: List[Dict[str, float]], out_path: str):
     """
     Produce a compact figure showing memorisation -> generalisation trends.
@@ -285,12 +359,14 @@ def parse_args() -> argparse.Namespace:
         help="List of task dimensionalities to sweep (usually fixed)",
     )
     parser.add_argument("--steps", type=int, default=500000, help="Training steps per run")
-    parser.add_argument("--batch", type=int, default=256, help="Batch size")
+    parser.add_argument("--batch", type=int, default=1024, help="Batch size")
     parser.add_argument("--eval_batch", type=int, default=256, help="Eval batch size")
     parser.add_argument("--examples", type=int, default=64, help="# in-context examples per sequence")
     parser.add_argument("--noise", type=float, default=0.25, help="Output noise variance")
     parser.add_argument("--lr", type=float, default=1e-3, help="Max learning rate")
     parser.add_argument("--checkpoints", type=int, default=10, help="# of checkpoints to save per run (None to disable)")
+    parser.add_argument("--parallel", action="store_true", help="Enable multi-GPU parallel training")
+    parser.add_argument("--gpus", type=int, default=None, help="Number of GPUs to use (default: all available)")
     parser.add_argument(
         "--out",
         type=str,
@@ -307,15 +383,15 @@ def main():
 
     # Model architecture (keep modest for the sweep)
     model_config = ModelConfig(
-        d_model=512,
+        d_model=128,
         d_x=16,
         d_y=1,
         n_layers=2,
-        n_heads=4,
-        d_mlp=512,
+        n_heads=2,
+        d_mlp=256,
         d_vocab=128,
         n_ctx=2 * args.examples,
-        d_head = 128,
+        d_head = 64,
         y_min=-7,
         y_max=7,
     )
@@ -335,13 +411,27 @@ def main():
         "n_checkpoints": args.checkpoints,
     }
 
-    num_tasks_list, results = run_sweep(
-        task_sizes=args.task_size,
-        num_tasks_list=args.tasks,
-        model_cfg=model_config,
-        base_training_cfg=base_training_config,
-        device=device,
-    )
+    # Run sweep in parallel or serial mode
+    if args.parallel and torch.cuda.device_count() > 1:
+        print("Running in parallel mode")
+        num_tasks_list, results = run_sweep_parallel(
+            task_sizes=args.task_size,
+            num_tasks_list=args.tasks,
+            model_cfg=model_config,
+            base_training_cfg=base_training_config,
+            num_gpus=args.gpus
+        )
+    else:
+        if args.parallel:
+            print("Warning: Parallel mode requested but only 1 or 0 GPUs available. Running in serial mode.")
+        print("Running in serial mode")
+        num_tasks_list, results = run_sweep(
+            task_sizes=args.task_size,
+            num_tasks_list=args.tasks,
+            model_cfg=model_config,
+            base_training_cfg=base_training_config,
+            device=device,
+        )
 
     plot_results(num_tasks_list, results, args.out)
 

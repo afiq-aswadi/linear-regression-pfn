@@ -28,6 +28,7 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
     # model initialisation
     print("initialising model")
     model = AutoregressivePFN(config).to(device)    
+    model = torch.compile(model)
     model.train()
 
     if print_model_dimensionality:
