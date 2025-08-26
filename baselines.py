@@ -1,3 +1,7 @@
+"""
+Matt's code for DMMSE and Ridge regression.
+"""
+
 import torch
 
 from samplers.tasks import DiscreteTaskDistribution, GaussianTaskDistribution

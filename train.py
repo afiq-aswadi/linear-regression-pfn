@@ -146,7 +146,7 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
                             run_id=run_id,
                             config=config,
                             training_config=training_config,
-                            forward_recursion_steps=128,
+                            forward_recursion_steps=64,
                             forward_recursion_samples=1000,
                             chunk_size=200
                         )
@@ -167,41 +167,26 @@ if __name__ == "__main__":
         n_heads=2,
         d_mlp=4 * 64,
         d_vocab=64,
-        n_ctx=128  # 2 * num_examples
+        n_ctx=128,  # 2 * num_examples
+        y_min=-6.0,
+        y_max=6.0,
     )
     
     # Training hyperparameters
     training_config = {
         'device': 'cuda',
         'task_size': 2,
-        'num_tasks': 2 ** 16,
+        'num_tasks': 2,
         'noise_var': .25,
         'num_examples': 64,
         'learning_rate': 0.003,
-        'training_steps': 100000,
+        'training_steps': 50000,
         'batch_size': 256,
         'eval_batch_size': 1024,
         'print_loss_interval': 100,
         'print_metrics_interval': 1000,
-        'n_checkpoints': 3,
+        'n_checkpoints': 5,
     }
     
-    # run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, plot_checkpoints=False)
+    run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, plot_checkpoints=True)
 
-
-# %%
-from predictive_resampling.predictive_resampling_plots import plot_predictive_resampling_from_checkpoints
-
-checkpoints_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
-run_id = '20250818_124433'
-
-beta_trajectories, w_pool = plot_predictive_resampling_from_checkpoints(
-    checkpoints_dir=checkpoints_dir,
-    run_id=run_id,  
-    config=model_config,
-    training_config=training_config,
-    forward_recursion_steps=64,
-    forward_recursion_samples=1000,
-    chunk_size=200
-)
-# %%

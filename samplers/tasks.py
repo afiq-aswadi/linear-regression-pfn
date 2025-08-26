@@ -6,6 +6,27 @@ import torch
 T = TypeVar('T', 'GaussianTaskDistribution', 'DiscreteTaskDistribution', 'SingletonTaskDistribution')
 
 
+def load_task_distribution_from_pt(file_path: str, device: str = "cpu"):
+    """
+    Load a task distribution saved by `samplers.tasks.*.save`.
+
+    Returns a concrete TaskDistribution instance on the requested device.
+    """
+    state = torch.load(file_path, map_location=device)
+    dist_type = state.get("type")
+    if dist_type == "discrete":
+        # Reconstruct and inject saved tasks
+        td = DiscreteTaskDistribution(
+            task_size=state["task_size"],
+            num_tasks=state["num_tasks"],
+            device=device,
+        )
+        td.tasks = state["tasks"].to(device)
+        return td
+    if dist_type == "gaussian":
+        return GaussianTaskDistribution(task_size=state["task_size"], device=device)
+    raise ValueError(f"Unrecognized task distribution type in {file_path}: {dist_type}")
+
 class RegressionSequenceDistribution(Generic[T]):
     """
     Represents a synthetic in-context regression data set, where each token

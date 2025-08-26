@@ -208,3 +208,7 @@ __marimo__/
 
 # Claude
 .claude/
+
+
+# Checkpoints
+checkpoints/

@@ -22,6 +22,9 @@ def predictive_resampling_beta(
     If init_tokens is a batch of 1: replicate it to forward_recursion_samples (B).
 
     If init_tokens is not None, then it must be a compatible input to the model.
+
+    If save_y is True, then return the beta_hat and the y trajectory.
+    If save_y is False, then return the beta_hat.
     """
     device = next(model.parameters()).device
     D = config.d_x #input dimension
@@ -164,6 +167,7 @@ def predictive_resampling_beta_chunked(
     forward_recursion_samples: int, # B_total
     chunk_size: int = 200, # B_chunk
     sample_y: bool = True,
+    save_y: bool = False,
     init_x: torch.Tensor = None, # Assumed batch of 1 or None
     init_y: torch.Tensor = None, # Assumed batch of 1 or None
 ) -> np.ndarray:
@@ -193,6 +197,7 @@ def predictive_resampling_beta_chunked(
             sample_y=sample_y,
             init_x=init_x, # Pass the batch of 1 (or None) received
             init_y=init_y, # Pass the batch of 1 (or None) received
+            save_y=save_y,
         )
         all_betas.append(betas_chunk)
 

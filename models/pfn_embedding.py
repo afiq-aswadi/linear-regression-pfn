@@ -16,7 +16,7 @@ class JointEmbedding(nn.Module):
         return self.x_embedding(x) + self.y_embedding(y)
     
     def get_y_embedding(self, y: Float[Array, "batch position d_y"]) -> Float[Array, "batch position d_model"]:
-        return self.y_embedding(y) #returns the embedding of y, need this for puq.
+        return self.y_embedding(y) #returns the embedding of y
     
     def get_x_embedding(self, x: Float[Array, "batch position d_x"]) -> Float[Array, "batch position d_model"]:
         return self.x_embedding(x) #returns the embedding of x
