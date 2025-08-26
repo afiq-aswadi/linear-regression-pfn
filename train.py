@@ -19,8 +19,19 @@ from samplers.tasks import DiscreteTaskDistribution, GaussianTaskDistribution
 device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
 
 
+def train_logarithmic_checkpoints(training_steps:int, n_checkpoints:int):
+    """
+    Training loop with checkpoints at logarithmic intervals for the first 20% of training.
+    """
+    log_steps = np.logspace(0, np.log10(training_steps*0.2), num=n_checkpoints)
+    log_steps = np.round(log_steps).astype(int)
+    linear_steps = np.arange(int(training_steps*0.2), training_steps, 10000, dtype=int)
+    checkpoint_steps = sorted(list(set(log_steps) | set(linear_steps) | {training_steps - 1}))
+    checkpoint_steps_set = set(checkpoint_steps)
+    return checkpoint_steps_set
+
 #%%
-def train(config: ModelConfig, training_config: dict, print_model_dimensionality: bool = False, logarithmic_checkpoints: bool = False):
+def train(config: ModelConfig, training_config: dict, print_model_dimensionality: bool = False):
     """
     Initialise and train an InContextRegressionTransformer model, tracking
     various metrics.
@@ -130,13 +141,9 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
             tqdm.write(f"  {'batch/loss':<30}: {loss.item():.2f}")
 
         if training_config['n_checkpoints'] is not None:
-            if logarithmic_checkpoints:
+            if training_config['logarithmic_checkpoints']:
                 if step == 0:  # Compute checkpoint steps once at the beginning
-                    log_steps = np.logspace(0, np.log10(training_config['training_steps']*0.2), num=training_config['n_checkpoints'])
-                    log_steps = np.round(log_steps).astype(int)
-                    linear_steps = np.arange(int(training_config['training_steps']*0.2), training_config['training_steps'], 10000, dtype=int)
-                    checkpoint_steps = sorted(list(set(log_steps) | set(linear_steps) | {training_config['training_steps'] - 1}))
-                    checkpoint_steps_set = set(checkpoint_steps)
+                    checkpoint_steps_set = train_logarithmic_checkpoints(training_config['training_steps'], training_config['n_checkpoints'])
                     globals()['checkpoint_steps_set'] = checkpoint_steps_set  # Store for reuse
                 
                 if step in globals().get('checkpoint_steps_set', set()):
@@ -178,9 +185,10 @@ if __name__ == "__main__":
         'print_loss_interval': 100,
         'print_metrics_interval': 1000,
         'n_checkpoints': 10,
+        'logarithmic_checkpoints': True,
     }
     
-    run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True, logarithmic_checkpoints=True)
+    run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True)
 
 
 # %%
