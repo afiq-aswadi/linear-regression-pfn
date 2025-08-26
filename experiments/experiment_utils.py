@@ -41,15 +41,15 @@ def get_checkpoints_dir() -> str:
 
 
 def build_checkpoint_path(checkpoints_dir: str, run_id: str, ckpt_idx: int) -> str:
-    return os.path.join(checkpoints_dir, f"{run_id}_model_checkpoint_{ckpt_idx}.pt")
+    return os.path.join(checkpoints_dir, f"{run_id}_model_step_{ckpt_idx}.pt") #todo: make this better
 
 
-def get_pretrain_distribution_path(checkpoints_dir: str, run_id: str, task_size: int) -> str:
-    return os.path.join(checkpoints_dir, f"{run_id}_pretrain_discrete_{task_size}tasks_2d.pt")
+def get_pretrain_distribution_path(checkpoints_dir: str, run_id: str, num_tasks: int, task_size: int) -> str:
+    return os.path.join(checkpoints_dir, f"{run_id}_pretrain_discrete_{num_tasks}tasks_{task_size}d.pt")
 
 
-def get_true_distribution_path(checkpoints_dir: str, run_id: str) -> str:
-    return os.path.join(checkpoints_dir, f"{run_id}_true_gaussian_2d.pt")
+def get_true_distribution_path(checkpoints_dir: str, run_id: str, task_size: int) -> str:
+    return os.path.join(checkpoints_dir, f"{run_id}_true_gaussian_{task_size}d.pt")
 
 
 def load_model_from_checkpoint(config: ModelConfig, checkpoint_path: str, device: Optional[str] = None) -> AutoregressivePFN:

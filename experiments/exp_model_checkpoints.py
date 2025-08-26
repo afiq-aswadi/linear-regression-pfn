@@ -9,8 +9,6 @@ from samplers.tasks import RegressionSequenceDistribution
 from baselines import dmmse_predictor, ridge_predictor
 from experiments.experiment_utils import (
     get_device,
-    default_model_config,
-    get_checkpoints_dir,
     build_checkpoint_path,
     get_pretrain_distribution_path,
     get_true_distribution_path,
@@ -21,7 +19,6 @@ from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
     RUNS,
     CHECKPOINTS_DIR,
-    PLOTS_DIR
 )
 
 device = get_device()
@@ -31,7 +28,7 @@ model_config = RAVENTOS_SWEEP_MODEL_CONFIG
 n_batches = 16
 batch_size = 16
 indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.n_bins)
-ckpt_idx = 4  #what checkpoint we want to use
+ckpt_idx = 149999  #what checkpoint we want to use
 
 
 #%%
