@@ -1,5 +1,8 @@
 """
 Plot the distribution of model outputs for sampled prompts from either true or general distributions for the final checkpoint of some run.
+
+
+TODO: check what happened with get_batch? might've messed up
 """
 #%%
 
@@ -63,18 +66,10 @@ for run_key, run_info in RUNS.items():
     dmmse_preds = dmmse_predictor(xs, ys, task_distribution, NOISE_VARIANCE)[:,-1,:].cpu()
     ridge_preds = ridge_predictor(xs, ys, NOISE_VARIANCE)[:,-1,:].cpu()
 
-    logits = model(xs, ys)
-
-    last_logit = logits[:, -2, :]
-
-    # Convert logits to probabilities using softmax
-    probs = F.softmax(last_logit, dim=-1).to('cpu')
-    model_mean = torch.sum(indices * probs, dim=-1).detach()
-
+    probs, model_mean = model.get_model_mean_prediction(xs, ys)
 
 
     # Create a figure with subplots for each batch
-    n_batches = probs.shape[0]
     n_cols = 2
     n_rows = (n_batches + 1) // 2
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4 * n_rows))

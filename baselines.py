@@ -4,16 +4,149 @@ Matt's code for DMMSE and Ridge regression.
 
 TODO: implement ppds as well
 """
-
+from jaxtyping import Float
 import torch
+import einops
+
 
 from samplers.tasks import DiscreteTaskDistribution, GaussianTaskDistribution
 from samplers.tasks import RegressionSequenceDistribution
 
 
-_DEFAULT_MAX_BYTES = 2**28 # 256 MiB
+_DEFAULT_MAX_BYTES = 2**32 # 256 MiB
 # chosen to fit comfortably in matt's GTX 1050 VRAM...
 # fits, e.g., (B=2048 batch * K=16 context * M=2048 tasks)=2**26 float32s
+
+def dmmse_w_hat(
+    xs: Float[torch.Tensor, "batch seq d_x"],
+    ys: Float[torch.Tensor, "batch seq 1"],
+    prior: DiscreteTaskDistribution,
+    noise_variance: float = 0.25,
+) -> Float[torch.Tensor, "batch seq d_x"]:
+        # Validate shapes and devices
+    B, K, D = xs.shape
+    M, D_ = prior.num_tasks, prior.task_size
+    if D != D_:
+        raise ValueError(f"dimension mismatch: data {D} != prior {D_}")
+    device = xs.device
+    device_ = prior.tasks.device
+    if device_ != device:
+        raise ValueError(f"devices: task {device_} != data {device}")
+
+    # Tasks matrix (M, D)
+    W_pool = prior.tasks
+
+    # Predictions for each task at each position: (B, K, M)
+    preds = xs @ W_pool.T
+    # Residuals per task at each position: (B, K, M)
+    errs = ys.squeeze(-1).unsqueeze(-1) - preds
+    sq_errs = errs.square()
+
+    # Exclusive prefix sum of squared errors along seq dim ([:k] for position k)
+    cumsum_sq_errs = sq_errs.cumsum(dim=1)                             # (B, K, M)
+    zeros_prefix = torch.zeros(B, 1, M, device=device, dtype=sq_errs.dtype)
+    excl_prefix_loss = torch.cat([zeros_prefix, cumsum_sq_errs[:, :-1, :]], dim=1)  # (B, K, M)
+
+    # Log-weights and probabilities per prefix over tasks
+    log_w = -0.5 / noise_variance * excl_prefix_loss                  # (B, K, M)
+    probs = torch.softmax(log_w, dim=-1)                              # (B, K, M)
+
+    # Posterior mean of w per prefix: (B, K, D)
+    ws_hat = probs @ W_pool                                           # (B, K, D)
+
+    return ws_hat
+
+def ridge_w_hat(
+    xs: Float[torch.Tensor, "batch seq d_x"],
+    ys: Float[torch.Tensor, "batch seq 1"],
+    prior: DiscreteTaskDistribution,
+    noise_variance: float = 0.25,
+) -> Float[torch.Tensor, "batch seq d_x"]|tuple[Float[torch.Tensor, "batch seq d_x"], Float[torch.Tensor, "batch seq d_x"], Float[torch.Tensor, "batch seq d_x"]]:
+    B, K, D = xs.shape
+    device = xs.device
+    
+    # compute w_hat for each k
+    # TODO: micro-optimisation: the k=0 case is always wk=0, skip it?
+    XTX = torch.empty(B, K, D, D, device=device)
+    RHS = torch.empty(B, K, D, 1, device=device)
+    for k in range(K): # unclear how to (or whether to) vectorise
+        Xk  = xs[:, :k, :]                  # B K D         -> B k D
+        yk  = ys[:, :k, :]                  # B K 1         -> B k 1
+        # compute the normal equations for this k
+        XkT = Xk.transpose(-2, -1)          # B k D         -> B D k
+        XTX[:, k, :, :] = XkT @ Xk          # B D k @ B k D -> B D D
+        RHS[:, k, :, :] = XkT @ yk          # B D k @ B k 1 -> B D 1
+    # that's the last of the dependence on k, so, batch from here:
+    # regularise the normal equations (making it ridge regression)
+    reg = noise_variance * torch.eye(D, device=device)
+    LHS = XTX + reg                         # B K D D + . . D D -> B K D D
+    # solve the regularised normal equations
+    # solve(LHS @ w == RHS) = inv(LHS) @ RHS
+    # note: GPU syncs with CPU here, except on MPS (not implemented yet)
+    ws_hat = torch.linalg.solve(LHS, RHS)   # BKDD^-1 @ BKD1 -> B K D 1
+    ws_hat = ws_hat.view(B, K, D)           #                -> B K D
+        
+    return ws_hat
+
+
+def dmmse_predictor_vectorized(
+    xs: Float[torch.Tensor, "batch seq d_x"],
+    ys: Float[torch.Tensor, "batch seq 1"], 
+    prior: DiscreteTaskDistribution,
+    noise_variance: float = 0.25,
+    return_ws_hat: bool = False,
+    bound_by_y_min_max = False,
+    y_min=None,
+    y_max=None,
+    **kwargs
+) -> tuple[Float[torch.Tensor, "B K 1"], Float[torch.Tensor, "B K D"]] | Float[torch.Tensor, "B K 1"]:
+    # Validate shapes and devices
+    B, K, D = xs.shape
+    M, D_ = prior.num_tasks, prior.task_size
+    if D != D_:
+        raise ValueError(f"dimension mismatch: data {D} != prior {D_}")
+    device = xs.device
+    device_ = prior.tasks.device
+    if device_ != device:
+        raise ValueError(f"devices: task {device_} != data {device}")
+
+    # Tasks matrix (M, D)
+    W_pool = prior.tasks
+
+    # Predictions for each task at each position: (B, K, M)
+    preds = xs @ W_pool.T
+    # Residuals per task at each position: (B, K, M)
+    errs = ys.squeeze(-1).unsqueeze(-1) - preds
+    sq_errs = errs.square()
+
+    # Exclusive prefix sum of squared errors along seq dim ([:k] for position k)
+    cumsum_sq_errs = sq_errs.cumsum(dim=1)                             # (B, K, M)
+    zeros_prefix = torch.zeros(B, 1, M, device=device, dtype=sq_errs.dtype)
+    excl_prefix_loss = torch.cat([zeros_prefix, cumsum_sq_errs[:, :-1, :]], dim=1)  # (B, K, M)
+
+    # Log-weights and probabilities per prefix over tasks
+    log_w = -0.5 / noise_variance * excl_prefix_loss                  # (B, K, M)
+    probs = torch.softmax(log_w, dim=-1)                              # (B, K, M)
+
+    # Posterior mean of w per prefix: (B, K, D)
+    ws_hat = probs @ W_pool                                           # (B, K, D)
+
+    # Predict y per position using ws_hat from preceding context
+    ys_pred = (xs.view(B, K, 1, D) @ ws_hat.view(B, K, D, 1)).view(B, K, 1)
+
+    # Optional clipping by y bounds
+    if bound_by_y_min_max:
+        if y_min is not None:
+            ys_pred = torch.maximum(ys_pred, torch.tensor(y_min, device=device))
+        if y_max is not None:
+            ys_pred = torch.minimum(ys_pred, torch.tensor(y_max, device=device))
+
+    if return_ws_hat:
+        return ys_pred, ws_hat
+    else:
+        return ys_pred
+
+
 
 
 def dmmse_predictor(
@@ -23,6 +156,10 @@ def dmmse_predictor(
     noise_variance: float,
     return_ws_hat=False,
     _max_bytes=_DEFAULT_MAX_BYTES,
+    bound_by_y_min_max = False,
+    y_min=None,
+    y_max=None,
+    **kwargs
 ):
     """
     Return the Bayes-optimal predictions for each prefix of the data set
@@ -45,6 +182,12 @@ def dmmse_predictor(
     * `_max_bytes=2**28 : int`
         a cap on the size of the intermediate BxKxM matrix, above which the
         computation will be internally minibatched along the B dimension
+    * `bound_by_y_min_max=False : bool`
+        whether to clip predictions to be within y_min and y_max bounds
+    * `y_min=None : float`
+        minimum value to clip predictions to if bound_by_y_min_max is True
+    * `y_max=None : float` 
+        maximum value to clip predictions to if bound_by_y_min_max is True
 
     Returns:
 
@@ -111,6 +254,12 @@ def dmmse_predictor(
           @ ws_hat.view(B, K, D, 1)                   #  @ B K D 1
         ).view(B, K, 1)                               # -> B K 1 1 -> B K 1
     
+    if bound_by_y_min_max:
+        if y_min is not None:
+            ys_pred = torch.maximum(ys_pred, torch.tensor(y_min, device=device))
+        if y_max is not None:
+            ys_pred = torch.minimum(ys_pred, torch.tensor(y_max, device=device))
+
     # that's all!
     if return_ws_hat:
         return ys_pred, ws_hat
@@ -118,7 +267,7 @@ def dmmse_predictor(
         return ys_pred
 
 
-def ridge_predictor(xs, ys, noise_variance, return_ws_hat=False):
+def ridge_predictor(xs, ys, noise_variance, return_ws_hat=False, bound_by_y_min_max = False, y_min=None, y_max=None, **kwargs):
     """
     Return the Bayes-optimal predictions for each prefix of the data set
     `xs`, `ys` given standard normal prior over tasks and known error model
@@ -135,6 +284,12 @@ def ridge_predictor(xs, ys, noise_variance, return_ws_hat=False):
         data.
     * `return_ws_hat=False : bool`
         whether to return Bayes-optimal model too (default: no).
+    * `bound_by_y_min_max=False : bool`
+        whether to clip predictions to be within y_min and y_max bounds
+    * `y_min=None : float`
+        minimum value to clip predictions to if bound_by_y_min_max is True
+    * `y_max=None : float` 
+        maximum value to clip predictions to if bound_by_y_min_max is True
 
     Returns:
 
@@ -179,6 +334,12 @@ def ridge_predictor(xs, ys, noise_variance, return_ws_hat=False):
           @ ws_hat.view(B, K, D, 1)         #  @ B K D 1
         ).view(B, K, 1)                     # -> B K 1 1 -> B K 1
     
+    if bound_by_y_min_max:
+        if y_min is not None:
+            ys_pred = torch.maximum(ys_pred, torch.tensor(y_min, device=device))
+        if y_max is not None:
+            ys_pred = torch.minimum(ys_pred, torch.tensor(y_max, device=device))
+
     # that's all!
     if return_ws_hat:
         return ys_pred, ws_hat

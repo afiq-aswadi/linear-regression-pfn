@@ -12,8 +12,10 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from scipy import stats
 
-from models.model import AutoregressivePFN
+from models.model import AutoregressivePFN, bin_y_values 
 from models.model_config import ModelConfig
 from samplers.tasks import load_task_distribution_from_pt as _load_td
 
@@ -40,8 +42,8 @@ def get_checkpoints_dir() -> str:
     return os.path.join(os.path.dirname(__file__), "checkpoints")
 
 
-def build_checkpoint_path(checkpoints_dir: str, run_id: str, ckpt_idx: int) -> str:
-    return os.path.join(checkpoints_dir, f"{run_id}_model_step_{ckpt_idx}.pt") #todo: make this better
+def build_checkpoint_path(checkpoints_dir: str, run_id: str, num_tasks, ckpt_idx: int) -> str:
+    return os.path.join(checkpoints_dir, f"{run_id}_model_{num_tasks}tasks_step_{ckpt_idx}.pt") #todo: make this better
 
 
 def get_pretrain_distribution_path(checkpoints_dir: str, run_id: str, num_tasks: int, task_size: int) -> str:
@@ -62,7 +64,7 @@ def load_model_from_checkpoint(config: ModelConfig, checkpoint_path: str, device
     state = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state)
     model.eval()
-    model = torch.compile(model)
+    # model = torch.compile(model) ## sometimes this breaks?
     return model
 
 
@@ -93,6 +95,142 @@ def extract_w_pool(task_distribution) -> Optional[np.ndarray]:
     return None
 
 
+
+def ridge_ppd(xs, ys, model_config: ModelConfig, sigma_squared=0.25):
+    """
+    Compute Ridge regression posterior predictive distributions autoregressively.
+    For each position i, predict y_i using context from positions 0 to i-1.
+    
+    Args:
+        xs: Input points, shape (batch_size, n_context, d_x)
+        ys: Output values, shape (batch_size, n_context) 
+        model_config: Model configuration containing bucket parameters
+        sigma_squared: Noise variance (default 0.25)
+    
+    Returns:
+        discrete_probs: Discrete probabilities over buckets for each position, 
+                       shape (batch_size, n_context, d_vocab)
+    """
+    device = xs.device if hasattr(xs, 'device') else 'cpu'
+    
+    # Convert to numpy for scipy operations
+    if torch.is_tensor(xs):
+        xs_np = xs.detach().cpu().numpy()
+        ys_np = ys.detach().cpu().numpy()
+    else:
+        xs_np = xs
+        ys_np = ys
+    
+    batch_size, n_context, d_x = xs_np.shape
+    discrete_probs = np.zeros((batch_size, n_context, model_config.d_vocab))
+    
+    # Setup bucket parameters
+    bucket_edges = np.linspace(model_config.y_min, model_config.y_max, model_config.d_vocab + 1)
+    
+    for b in range(batch_size):
+        for i in range(n_context):
+            if i == 0:
+                # First prediction: no context, use prior N(0, σ²)
+                mean_i = 0.0
+                var_i = sigma_squared
+            else:
+                # Use context from positions 0 to i-1
+                x_context = xs_np[b, :i]  # shape (i, d_x)
+                y_context = ys_np[b, :i]  # shape (i,)
+                x_star = xs_np[b, i:i+1]  # shape (1, d_x)
+                
+                # Compute Ridge regression posterior parameters
+                # μ = (X^T X + σ²I)^{-1} X^T y
+                XTX = x_context.T @ x_context
+                XTX_reg = XTX + sigma_squared * np.eye(d_x)
+                XTX_reg_inv = np.linalg.inv(XTX_reg)
+                mu = XTX_reg_inv @ x_context.T @ y_context
+                
+                # Posterior covariance: Σ = (I + (1/σ²)X^T X)^{-1}
+                Sigma = np.linalg.inv(np.eye(d_x) + (1/sigma_squared) * XTX)
+                
+                # Predictive mean and variance
+                mean_i = x_star[0] @ mu
+                var_i = sigma_squared + x_star[0] @ Sigma @ x_star[0]
+            
+            std_i = np.sqrt(var_i)
+            
+            # Compute CDF at bucket edges
+            cdf_edges = stats.norm.cdf(bucket_edges, loc=mean_i, scale=std_i)
+            
+            # Bucket probabilities are differences in CDF
+            bucket_probs = cdf_edges[1:] - cdf_edges[:-1]
+            
+            # Handle edge cases: add tail probabilities to edge buckets
+            # Left tail (below y_min) goes to first bucket
+            left_tail = cdf_edges[0]
+            bucket_probs[0] += left_tail
+            
+            # Right tail (above y_max) goes to last bucket  
+            right_tail = 1.0 - cdf_edges[-1]
+            bucket_probs[-1] += right_tail
+            
+            # Normalize to ensure probabilities sum to 1
+            bucket_probs = bucket_probs / bucket_probs.sum()
+            
+            discrete_probs[b, i] = bucket_probs
+    
+    # Convert back to torch tensor if input was tensor
+    if torch.is_tensor(xs):
+        discrete_probs = torch.from_numpy(discrete_probs).float().to(device)
+    
+    return discrete_probs
+
+
+def get_model_codelength(config: ModelConfig, model: AutoregressivePFN, xs: torch.Tensor, ys: torch.Tensor): #todo: move this to utils?
+    y_bins = bin_y_values(ys, config.y_min, config.y_max, config.d_vocab) # B x N
+    logits = model(xs, ys) # B x 2*N x d_vocab
+    logprobs = F.log_softmax(logits, dim=-1) # B x 2*N x d_vocab
+    logprobs = logprobs[:, ::2, :] # B x N x d_vocab
+    
+    # Get negative log probs for true y values (B x N)
+    neg_logprobs = -torch.gather(logprobs, -1, y_bins.unsqueeze(-1)).squeeze(-1)
+    
+    # Calculate running sum across sequence length (B x N)
+    codelength = torch.cumsum(neg_logprobs, dim=1)
+
+    return codelength
+
+
+def get_ridge_codelength(config: ModelConfig, xs: torch.Tensor, ys: torch.Tensor, sigma_squared=0.25):
+    """
+    Compute Ridge regression codelength autoregressively.
+    Same as get_model_codelength but uses ridge_ppd instead of model predictions.
+    
+    Args:
+        config: Model configuration
+        xs: Input points, shape (batch_size, n_context, d_x)
+        ys: Output values, shape (batch_size, n_context)
+        sigma_squared: Noise variance for Ridge regression
+        
+    Returns:
+        codelength: Cumulative negative log probabilities, shape (batch_size, n_context)
+    """
+    # Get ridge posterior predictive distributions
+    ridge_probs = ridge_ppd(xs, ys, config, sigma_squared)  # B x N x d_vocab
+    ridge_logprobs = torch.log(ridge_probs + 1e-8)  # Add small epsilon for numerical stability
+    
+    # Bin the true y values
+    y_bins = bin_y_values(ys, config.y_min, config.y_max, config.d_vocab)  # B x N
+    
+    # Get negative log probs for true y values (B x N)
+    neg_logprobs = -torch.gather(ridge_logprobs, -1, y_bins.unsqueeze(-1)).squeeze(-1)
+    
+    # Calculate running sum across sequence length (B x N)
+    codelength = torch.cumsum(neg_logprobs, dim=1)
+
+    return codelength
+
+
+
+
+
+#%%
 __all__ = [
     "get_device",
     "default_model_config",
@@ -103,4 +241,7 @@ __all__ = [
     "load_model_from_checkpoint",
     "load_task_distribution",
     "extract_w_pool",
+    "ridge_ppd",
+    "get_model_codelength",
+    "get_ridge_codelength",
 ]

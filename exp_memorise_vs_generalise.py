@@ -25,14 +25,19 @@ from experiments.experiment_configs import (
     PLOTS_DIR
 )
 
+#%%
+m10_run = dict([("m12", RUNS["m12"])])
+m10_run["m12"]["ckpts"] = [m10_run["m12"]["ckpts"][-1]]
+
+
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
-indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.n_bins)
+indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.d_vocab)
 
 #%%
-batch_size = 4 #number of batches to plot
-NOISE_VARIANCE = 0
-prompt_len = 64
+batch_size = 5 #number of batches to plot
+NOISE_VARIANCE = 0.25
+prompt_len = 20
 
 #%%
 # Use a single noise variance for all runs; included in plot titles NOTE: These are sampling from true distribution.
@@ -47,8 +52,8 @@ def _load_distribution_paths(run_id: str, num_tasks: int, task_size: int):
     return pretrain_path, general_path
 
 
-def _compute_model_outputs_for_ckpt(run_id: str, ckpt_idx: int, xs: torch.Tensor, ys: torch.Tensor):
-    model_path = build_checkpoint_path(CHECKPOINTS_DIR, run_id, ckpt_idx)
+def _compute_model_outputs_for_ckpt(num_tasks: int, run_id: str, ckpt_idx: int, xs: torch.Tensor, ys: torch.Tensor):
+    model_path = build_checkpoint_path(CHECKPOINTS_DIR, run_id, num_tasks, ckpt_idx)
     model = load_model_from_checkpoint(model_config, model_path, device=device)
 
     logits = model(xs, ys)
@@ -97,7 +102,7 @@ def _plot_grid_across_checkpoints(
                 indices,
                 weights=prob_dist,
                 bins=len(indices),
-                density=True,
+                density=False,
                 color="white",
                 edgecolor="black",
             )
@@ -108,7 +113,7 @@ def _plot_grid_across_checkpoints(
             ax.axvline(x=model_mean_y, color="#33CC33", linestyle="-.", label="Model Mean", linewidth=1.5)
 
             if row_idx == 0:
-                ax.set_title(f"ckpt {ckpt_idx}")
+                ax.set_title(f"step {ckpt_idx}")
             if col_idx == 0:
                 ax.set_ylabel(f"Batch {row_idx} (y={true_y:.2f})")
             ax.set_xlabel("y value")
@@ -122,12 +127,13 @@ def _plot_grid_across_checkpoints(
         plt.show()
 
 
+#%%
 # Iterate over all configured runs and evaluate across checkpoints
-for run_key, run_info in RUNS.items():
+for run_key, run_info in m10_run.items():
     run_id = run_info["run_id"]
     ckpt_indices = run_info["ckpts"]
 
-    pretrain_path, general_path = _load_distribution_paths(run_id, run_info["num_tasks"], RAVENTOS_SWEEP_MODEL_CONFIG.d_x)
+    pretrain_path, general_path = _load_distribution_paths(run_id, num_tasks=run_info["task_size"], task_size=RAVENTOS_SWEEP_MODEL_CONFIG.d_x)
     pretrain_task_distribution = load_task_distribution_from_pt(pretrain_path, device=device)
     general_task_distribution = load_task_distribution_from_pt(general_path, device=device)
 
@@ -139,13 +145,13 @@ for run_key, run_info in RUNS.items():
     xs = xs.to(device)
     ys = ys.to(device)
 
-    dmmse_preds = dmmse_predictor(xs, ys, pretrain_task_distribution, 0.25)[:, -1, :].cpu() #hardcoding for now
-    ridge_preds = ridge_predictor(xs, ys, 0.25)[:, -1, :].cpu()
+    dmmse_preds = dmmse_predictor(xs, ys, pretrain_task_distribution, 0.25, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max)[:, -1, :].cpu() #hardcoding for now
+    ridge_preds = ridge_predictor(xs, ys, 0.25, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max)[:, -1, :].cpu()
 
     probs_per_ckpt = []
     model_means_per_ckpt = []
     for ckpt_idx in ckpt_indices:
-        probs, model_mean = _compute_model_outputs_for_ckpt(run_id, ckpt_idx, xs, ys)
+        probs, model_mean = _compute_model_outputs_for_ckpt(run_info["task_size"], run_id, ckpt_idx, xs, ys)
         probs_per_ckpt.append(probs)
         model_means_per_ckpt.append(model_mean)
 
@@ -159,7 +165,7 @@ for run_key, run_info in RUNS.items():
         ridge_preds,
         probs_per_ckpt,
         model_means_per_ckpt,
-        title_suffix=f"task_size={run_info['task_size']} | pretrain-sampled",
+        title_suffix=f"num_tasks={run_info['task_size']} | prompt_len={prompt_len} | pretrain-sampled",
     )
 
     # Generalisation-style sampling: sample from true/general distribution
@@ -171,13 +177,13 @@ for run_key, run_info in RUNS.items():
     ys = ys.to(device)
 
     # DMMSE and Ridge remain based on pretrain task distribution as before
-    dmmse_preds = dmmse_predictor(xs, ys, pretrain_task_distribution, 0.25)[:, -1, :].cpu()
-    ridge_preds = ridge_predictor(xs, ys, 0.25)[:, -1, :].cpu()
+    dmmse_preds = dmmse_predictor(xs, ys, pretrain_task_distribution, 0.25, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max)[:, -1, :].cpu()
+    ridge_preds = ridge_predictor(xs, ys, 0.25, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max)[:, -1, :].cpu()
 
     probs_per_ckpt = []
     model_means_per_ckpt = []
     for ckpt_idx in ckpt_indices:
-        probs, model_mean = _compute_model_outputs_for_ckpt(run_id, ckpt_idx, xs, ys)
+        probs, model_mean = _compute_model_outputs_for_ckpt(run_info["task_size"], run_id, ckpt_idx, xs, ys)
         probs_per_ckpt.append(probs)
         model_means_per_ckpt.append(model_mean)
 
@@ -191,7 +197,7 @@ for run_key, run_info in RUNS.items():
         ridge_preds,
         probs_per_ckpt,
         model_means_per_ckpt,
-        title_suffix=f"task_size={run_info['task_size']} | generalisation-sampled",
+        title_suffix=f"num_tasks={run_info['task_size']} | prompt_len={prompt_len} | generalisation-sampled",
     )
 
 # %%

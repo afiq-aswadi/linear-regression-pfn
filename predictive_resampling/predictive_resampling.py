@@ -16,6 +16,7 @@ def predictive_resampling_beta(
     init_x: torch.Tensor = None,  # optional prefix buffer (batch of 1 or None)
     init_y: torch.Tensor = None,  # optional prefix buffer (batch of 1 or None)
     save_y: bool = False,
+    debug: bool = False,
 ) -> np.ndarray:
     """
     If init_tokens is None: behavior with fresh X ~ N(0,I).
@@ -48,11 +49,12 @@ def predictive_resampling_beta(
 
         K_init = x_prefix.shape[1] 
 
-        X_fut = torch.randn(B, T - K_init, D, device=device)
-        X = torch.cat([x_prefix, X_fut], dim=1)  # (B, T, D)
-        y = y_prefix
+        X_fut = torch.randn(B, T , D, device=device)
+        X = torch.cat([x_prefix, X_fut], dim=1)  # (B, T + K_init, D)
+        y = y_prefix # (B, K_init, d_y)
+        y = torch.cat([y, torch.zeros(B, 1, config.d_y, device=device)], dim=1)  # Append zero for next prediction
 
-    for k in range(K_init, T-1):
+    for k in range(K_init, T+K_init): #TODO: check potential off by one error
         ctx_x = X[:, :k+1, :]
 
         # Ensure y has a zero placeholder appended for the current step,
@@ -73,13 +75,7 @@ def predictive_resampling_beta(
         assert ctx_x.shape[1] == ctx_y.shape[1], "ctx_x and ctx_y must have the same length"
 
         model_output = model(ctx_x, ctx_y)
-        # The real model should return sequences of length 2*input_length
-        # We want the second-to-last position which corresponds to (x_{k+1}, 0)
-        if model_output.shape[1] >= 2:
-            logits = model_output[:, -2, :]
-        else:
-            # Fallback for edge cases or mock models
-            logits = model_output[:, -1, :]
+        logits = model_output[:, -2, :]
         probs  = torch.softmax(logits, dim=-1)
         if sample_y:
             y_cls = torch.multinomial(probs, 1).squeeze(-1)
@@ -90,6 +86,7 @@ def predictive_resampling_beta(
 
         # Replace the last zero placeholder with the sampled/argmax value
         y[:, -1:, :] = y_sample
+
 
     # # 3) sample y for steps k = K_init … T-1
     # for k in range(K_init, T - 1):
@@ -106,7 +103,7 @@ def predictive_resampling_beta(
 
     #     tokens[:, 2*k + 1, 0] = y_cls.float()
 
-        if k % 20 == 0 or k == T - 2:
+        if k % 20 == 0 and k == T - 2 and debug:
             # Class ID diversity diagnostic
             print(f"[Step {k}] Sampled class IDs:")
             print(torch.unique(y_cls, return_counts=True))
@@ -116,12 +113,13 @@ def predictive_resampling_beta(
             print(f"[Step {k}] Average predictive entropy: {entropy:.2f}")
 
     # 4) final y_T prediction: append a zero placeholder then replace it
-    if y.shape[1] < T:
-        pad_len = T - y.shape[1]
+    if y.shape[1] < T + K_init: 
+        pad_len = T + K_init - y.shape[1]
         assert pad_len == 1, "expected to pad exactly one step at final prediction"
         y = torch.cat([y, torch.zeros(B, pad_len, config.d_y, device=device)], dim=1)
-    elif y.shape[1] > T:
-        y = y[:, :T, :]
+    # elif y.shape[1] > T:
+        # y = y[:, :T, :]
+    assert X.shape[1] == y.shape[1], f"X and y must have the same length, currently X.shape[1] = {X.shape[1]}, y.shape[1] = {y.shape[1]}"
 
     final_model_output = model(X, y)
     if final_model_output.shape[1] >= 2:
@@ -138,8 +136,9 @@ def predictive_resampling_beta(
     try:
         beta_hat = torch.linalg.lstsq(X, y).solution.squeeze(-1)  # (B, D)
     except Exception as e:
-        print(f"Error in lstsq: {e}")
-        print(f"X shape: {X.shape}, y shape: {y.shape}")
+        print("Error in lstsq, trying manual implementation (mps does not support lstsq)")
+        # print(f"Error in lstsq: {e}")
+        # print(f"X shape: {X.shape}, y shape: {y.shape}")
         # Manual implementation of least squares: β = (X^T X)^(-1) X^T y
         X_t = X.transpose(-2, -1)  # [B, D, T]
         X_t_X = torch.bmm(X_t, X)  # [B, D, D]
@@ -170,6 +169,7 @@ def predictive_resampling_beta_chunked(
     save_y: bool = False,
     init_x: torch.Tensor = None, # Assumed batch of 1 or None
     init_y: torch.Tensor = None, # Assumed batch of 1 or None
+    debug: bool = False,
 ) -> np.ndarray:
     """
     Run predictive_resampling_beta in chunks to avoid OOM.
@@ -177,6 +177,7 @@ def predictive_resampling_beta_chunked(
     by predictive_resampling_beta for each chunk.
     """
     all_betas = []
+    all_ys = [] if save_y else None
     total_samples = forward_recursion_samples
 
     # Check if init_tokens has batch size 1 if provided (optional safety check)
@@ -188,7 +189,7 @@ def predictive_resampling_beta_chunked(
     for start in range(0, total_samples, chunk_size):
         this_chunk = min(chunk_size, total_samples - start)
 
-        betas_chunk = predictive_resampling_beta(
+        result = predictive_resampling_beta(
             model,
             config,
             forward_recursion_steps=forward_recursion_steps,
@@ -198,7 +199,17 @@ def predictive_resampling_beta_chunked(
             init_x=init_x, # Pass the batch of 1 (or None) received
             init_y=init_y, # Pass the batch of 1 (or None) received
             save_y=save_y,
+            debug=debug,
         )
-        all_betas.append(betas_chunk)
+        
+        if save_y:
+            betas_chunk, y_chunk = result
+            all_betas.append(betas_chunk)
+            all_ys.append(y_chunk)
+        else:
+            all_betas.append(result)
 
-    return np.concatenate(all_betas, axis=0)
+    if save_y:
+        return np.concatenate(all_betas, axis=0), np.concatenate(all_ys, axis=0)
+    else:
+        return np.concatenate(all_betas, axis=0)

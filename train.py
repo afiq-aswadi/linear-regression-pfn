@@ -9,7 +9,6 @@ from tqdm import tqdm
 import os
 from datetime import datetime
 
-from evals import ICLEvaluator
 from models.model import AutoregressivePFN, bin_y_values, unbin_y_values
 from models.model_config import ModelConfig
 from samplers.tasks import RegressionSequenceDistribution

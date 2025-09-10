@@ -1,6 +1,8 @@
 #%%
 import torch as t
 import torch.nn as nn
+import torch.nn.functional as F
+
 from jaxtyping import Float, Array
 
 from dataclasses import dataclass
@@ -33,6 +35,30 @@ class AutoregressivePFN(nn.Module):
 
     def save(self, path: str):
         t.save(self.state_dict(), path)
+
+    def get_model_mean_prediction(self, x: Float[Array, "batch n_x d_x"], y: Float[Array, "batch n_y d_y"]) -> tuple[Float[Array, "batch n_y d_vocab"], Float[Array, "batch n_y"]]: #todo: better name for function?
+        """
+        Get the model's mean prediction for a given x and y.
+
+        Returns:   
+            probs: Float[Array, "batch n_y d_vocab"]
+            model_mean: Float[Array, "batch n_y"]
+        """
+        # Use bin centers instead of linspace endpoints
+        bin_width = (self.cfg.y_max - self.cfg.y_min) / self.cfg.d_vocab
+        bin_centers = t.linspace(
+            self.cfg.y_min + bin_width/2, 
+            self.cfg.y_max - bin_width/2, 
+            self.cfg.d_vocab, 
+            device=x.device, dtype=x.dtype
+        )
+        with t.no_grad():
+            logits = self.forward(x,y) 
+            probs = F.softmax(logits, dim=-1)
+            model_mean = t.sum(bin_centers * probs, dim=-1).detach()
+            model_mean = model_mean[:, ::2] #even indices
+        
+        return probs, model_mean
     
     @classmethod
     def load(cls, path: str):
