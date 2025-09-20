@@ -27,7 +27,7 @@ We perform predictive resampling on the PFN to study the model's implied prior:
 <p align="center">
   <img src="images/predictive-resampling_run-m16_tasks-32768.png" alt="Predictive Resampling Results (task size 32768)" width="420">
 </p>
-<p><em>Evolution of learned priors during training for a PFN trained on 1-context tasks. Each column shows a different training checkpoint, rows show different output dimensions. The plots compare the PFN's learned prior (blue) against the true N(0,1) prior (red) and actual task distribution (orange).</em></p>
+<p><em>Evolution of learned priors during training for a PFN trained on 1-context and 32768-context tasks. Each column shows a different training checkpoint, rows show different output dimensions. The plots compare the PFN's learned prior (blue) against the true N(0,1) prior (red) and actual task distribution (orange).</em></p>
 
 
 
