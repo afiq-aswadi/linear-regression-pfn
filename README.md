@@ -7,7 +7,7 @@
 
 
 - We implement a [Prior-Data Fitted Network](https://arxiv.org/abs/2112.10510) for [in-context linear regression](https://arxiv.org/pdf/2306.15063). Due to our usecase, we deviate slightly from their architecture, and implement a different attention masking scheme to allow for autoregressive training and prediction. Model implementation can be found in `models/`.
-- We replicate the results of Raventos et al. ([[link](https://arxiv.org/pdf/2306.15063)]), showing a task diversity threshold where the model transitions from memorising to generalising.
+- We replicate the results of Raventos et al. ([link](https://arxiv.org/pdf/2306.15063)), showing a task diversity threshold where the model transitions from memorising to generalising.
 - We use [predictive resampling](https://royalsocietypublishing.org/doi/pdf/10.1098/rsta.2022.0142?download=true) to sample from the prior predictive distribution of the PFN. This gives a better view of the statistical model used by the PFN to perform in-context linear regression, rather than looking at a point prediction. (code adapted from Susan Wei's implementation)
 
 ### Results
@@ -17,17 +17,17 @@ We introduce an autoregressive attention masking scheme that allows the PFN to b
 <p align="center">
   <img src="images/autoregressive_pfn_mask.png" alt="Autoregressive PFN Masking" width="360">
 </p>
-<p align="center"><em>Autoregressive attention masking scheme for sequential prediction (darker shades are the positions we train on).</em></p>
+<p><em>Autoregressive attention masking scheme for sequential prediction (darker shades are the positions we train on).</em></p>
 
 We perform predictive resampling on the PFN to study the model's implied prior:
 
 <p align="center">
-  <img src="images/predictive_resampling_run-m1_tasks-1.png" alt="Predictive Resampling Results (task size 1)" width="420">
+  <img src="images/predictive-resampling_run-m1_tasks-1.png" alt="Predictive Resampling Results (task size 1)" width="420">
 </p>
 <p align="center">
-  <img src="images/predictive_resampling_run-m16_tasks-16.png" alt="Predictive Resampling Results (task size 16)" width="420">
+  <img src="images/predictive-resampling_run-m16_tasks-32768.png" alt="Predictive Resampling Results (task size 32768)" width="420">
 </p>
-<p align="center"><em>Evolution of learned priors during training for a PFN trained on 1-context tasks. Each column shows a different training checkpoint, rows show different output dimensions. The plots compare the PFN's learned prior (blue) against the true N(0,1) prior (red) and actual task distribution (orange).</em></p>
+<p><em>Evolution of learned priors during training for a PFN trained on 1-context tasks. Each column shows a different training checkpoint, rows show different output dimensions. The plots compare the PFN's learned prior (blue) against the true N(0,1) prior (red) and actual task distribution (orange).</em></p>
 
 
 
@@ -43,7 +43,7 @@ We perform predictive resampling on the PFN to study the model's implied prior:
 ├── experiments/                # Research experiments and analysis
 │   ├── exp_*.py                # Various experiments
 │   └── experiment_configs.py          # Experiment registry
-├── predictive_resampling/      # Posterior analysis tools
+├── predictive_resampling/      # Predictive resampling tools
 ├── checkpoints/               # Saved models and task distributions
 └── plots/                    # Generated figures and results
 ```
