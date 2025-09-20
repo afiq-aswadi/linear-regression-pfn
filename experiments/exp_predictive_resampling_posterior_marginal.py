@@ -8,6 +8,14 @@ Saves a D×checkpoints figure per run in PLOTS_DIR.
 
 
 #%%
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
 import os
 import torch
 import numpy as np
@@ -66,7 +74,7 @@ TEST_IDX_TO_PLOT = 0
 
 for run_key, run_info in RUNS.items():
     print(f"\nProcessing {run_key} (task_size={run_info['task_size']})...")
-    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+    run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
 
     # Sample every 4th checkpoint to reduce load
     selected_checkpoints = run_info['ckpts'][::4]

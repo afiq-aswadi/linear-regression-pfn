@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from typing import Iterable, List, Tuple
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
 
 import matplotlib.pyplot as plt
 import torch
@@ -35,6 +42,7 @@ EVAL_SEED_BASE = 42
 
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 
 def _set_seed(seed: int) -> None:
     """Seed torch (and CUDA if available) for deterministic sampling."""
@@ -107,7 +115,7 @@ def main() -> None:
         num_tasks = run_info["task_size"]
         ckpt_indices: List[int] = run_info["ckpts"]
 
-        run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+        run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
 
         pretrain_path = get_pretrain_distribution_path(
             CHECKPOINTS_DIR,

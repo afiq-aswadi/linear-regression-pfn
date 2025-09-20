@@ -19,6 +19,9 @@ A PFN trained to perform linear regression autoregressively. Note the attention 
 #%%
 
 class PFNAttention(nn.Module):
+    """
+    Attention Layer, implementation copied from ARENA
+    """
     def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.cfg = cfg

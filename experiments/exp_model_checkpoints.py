@@ -6,6 +6,14 @@ TODO: check what happened with get_batch? might've messed up
 """
 #%%
 
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
 import os
 import torch
 
@@ -49,7 +57,7 @@ import torch.nn.functional as F
 # Iterate over all configured runs and evaluate the final checkpoint (index 4)
 for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
-    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+    run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
    
     # Build model + load checkpoint
     model_path = build_checkpoint_path(CHECKPOINTS_DIR, run_id, ckpt_idx)
@@ -136,7 +144,7 @@ import torch.nn.functional as F
 # Iterate over all configured runs and evaluate the final checkpoint (index 4)
 for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
-    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+    run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
     ckpt_idx = 2  # explicitly use the final checkpoint
 
     # Build model + load checkpoint

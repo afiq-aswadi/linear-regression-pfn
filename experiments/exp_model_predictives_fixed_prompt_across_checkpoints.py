@@ -5,6 +5,14 @@ Across checkpoints, plot model's predictive distributions from either true or ge
 """
 #%%
 
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
 import os
 import torch
 
@@ -35,6 +43,7 @@ from experiments.experiment_configs import (
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
 indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.d_vocab)
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 
 #%%
 batch_size = 5 #number of batches to plot
@@ -136,7 +145,7 @@ def _plot_grid_across_checkpoints(
 for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
     ckpt_indices = run_info["ckpts"]
-    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+    run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
 
     pretrain_path, general_path = _load_distribution_paths(run_id, num_tasks=run_info["task_size"], task_size=RAVENTOS_SWEEP_MODEL_CONFIG.d_x)
     pretrain_task_distribution = load_task_distribution_from_pt(pretrain_path, device=device)

@@ -4,6 +4,14 @@ This script performs predictive resampling without conditioning on any input dat
 
 
 #%%
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
 import os
 import torch
 import torch.nn.functional as F
@@ -247,7 +255,7 @@ if len(results_full) > 0:
         plt.legend()
         plt.tight_layout()
 
-        run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+        run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
         plot_filename = build_experiment_filename(
             "energy-distance",
             run=run_key,
@@ -287,7 +295,7 @@ if len(results_full) > 0:
 # %%
 
 print(
-    f"\nEnergy distance artefacts saved to {SUMMARY_PLOT_DIR} and per-run folders under {BASE_PLOT_DIR}."
+    f"\nEnergy distance artefacts saved to {SUMMARY_PLOT_DIR} and individual files in {BASE_PLOT_DIR}."
 )
 
 # %%

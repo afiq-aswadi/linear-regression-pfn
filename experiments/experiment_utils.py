@@ -9,8 +9,14 @@ Shared utilities for experiment scripts:
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
+
+# Ensure repository root is importable when running notebooks from experiments/.
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import numpy as np
 import torch

@@ -3,9 +3,17 @@ Define model configs, checkpoint ids here
 """
 #%%
 import os
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
 
 from models.config import ModelConfig, TrainConfig
 from train import train_logarithmic_checkpoints
+
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLOTS_DIR = os.path.join(PROJECT_ROOT, "plots")

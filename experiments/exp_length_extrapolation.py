@@ -1,7 +1,17 @@
 """
 Replication(ish) of Figure 3 of Fang et al. We sample a prompt with length greater than the length of the training prompts, and see if the model can extrapolate to this longer length.
+
+todo: specify if with ridge or not
 """
 #%%
+import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+
 import os
 import torch
 import torch.nn.functional as F
@@ -153,7 +163,7 @@ print("Processing all models...")
 
 for run_key, run_info in RUNS.items():
     print(f"\nProcessing {run_key} (task_size={run_info['task_size']})...")
-    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+    run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
 
     try:
         # 1. Generalizing distribution (shared dataset)
@@ -344,74 +354,20 @@ plt.savefig(
 )
 plt.close()
 
-# Create histogram plots for MSE distributions
-print("\nCreating MSE distribution histograms...")
+# # Create histogram plots for MSE distributions
+# print("\nCreating MSE distribution histograms...")
 
-# Histogram for general dataset - all models
-plt.figure(figsize=(15, 10))
-n_models = len(model_histograms_general)
-n_cols = 4
-n_rows = (n_models + n_cols - 1) // n_cols
-
-for i, (run_key, individual_mses) in enumerate(model_histograms_general.items()):
-    plt.subplot(n_rows, n_cols, i + 1)
-    plt.hist(individual_mses, bins=50, alpha=0.7, density=True, label=f'Model {run_key}')
-    if 'Ridge' in ridge_histograms_general:
-        plt.hist(ridge_histograms_general['Ridge'], bins=50, alpha=0.7, density=True, label='Ridge', color='red')
-    plt.xlabel('MSE')
-    plt.ylabel('Density')
-    plt.title(f'{run_key} (task_size={RUNS[run_key]["task_size"]})')
-    plt.legend()
-    plt.yscale('linear')
-    plt.grid(True, alpha=0.3)
-
-plt.suptitle('MSE Distribution Histograms - General Dataset')
-plt.tight_layout()
-hist_general_filename = build_experiment_filename(
-    "mse-histograms",
-    dataset="general",
-    prompt_len=prompt_len,
-    ckpt=ckpt_idx,
-    noise=NOISE_VARIANCE,
-)
-plt.savefig(
-    os.path.join(SUMMARY_PLOT_DIR, hist_general_filename),
-    dpi=150,
-    bbox_inches='tight',
-)
-plt.close()
-
-# Individual histogram plots for better readability - General Dataset
-# for run_key, individual_mses in model_histograms_general.items():
-#     plt.figure(figsize=(10, 6))
-#     plt.hist(individual_mses, bins=100, alpha=0.7, density=True, label=f'Model {run_key}', color='blue')
-#     if 'Ridge' in ridge_histograms_general:
-#         plt.hist(ridge_histograms_general['Ridge'], bins=100, alpha=0.7, density=True, label='Ridge', color='red')
-#     # if run_key in dmmse_histograms_general:
-#         # plt.hist(dmmse_histograms_general[run_key], bins=100, alpha=0.7, density=True, label='DMMSE', color='green')
-#     plt.xlabel('MSE')
-#     plt.ylabel('Density')
-#     plt.title(f'MSE Distribution - {run_key} vs Baselines (General Dataset)')
-#     plt.legend()
-#     plt.yscale('linear')
-#     plt.grid(True, alpha=0.3)
-#     plt.savefig(os.path.join(PLOTS_DIR, f"histogram_{run_key}_general.png"), dpi=150, bbox_inches='tight')
-#     plt.close()
-
-# Add histogram plots for pretrain data
-print("Creating MSE distribution histograms for pretrain data...")
-
-# # Histogram for pretrain dataset - all models
+# # Histogram for general dataset - all models
 # plt.figure(figsize=(15, 10))
-# n_models = len(model_histograms_pretrain)
+# n_models = len(model_histograms_general)
 # n_cols = 4
 # n_rows = (n_models + n_cols - 1) // n_cols
 
-# for i, (run_key, individual_mses) in enumerate(model_histograms_pretrain.items()):
+# for i, (run_key, individual_mses) in enumerate(model_histograms_general.items()):
 #     plt.subplot(n_rows, n_cols, i + 1)
 #     plt.hist(individual_mses, bins=50, alpha=0.7, density=True, label=f'Model {run_key}')
-#     if 'Ridge' in ridge_histograms_pretrain:
-#         plt.hist(ridge_histograms_pretrain['Ridge'], bins=50, alpha=0.7, density=True, label='Ridge', color='red')
+#     if 'Ridge' in ridge_histograms_general:
+#         plt.hist(ridge_histograms_general['Ridge'], bins=50, alpha=0.7, density=True, label='Ridge', color='red')
 #     plt.xlabel('MSE')
 #     plt.ylabel('Density')
 #     plt.title(f'{run_key} (task_size={RUNS[run_key]["task_size"]})')
@@ -419,41 +375,38 @@ print("Creating MSE distribution histograms for pretrain data...")
 #     plt.yscale('linear')
 #     plt.grid(True, alpha=0.3)
 
-# plt.suptitle('MSE Distribution Histograms - Pretrain Dataset')
+# plt.suptitle('MSE Distribution Histograms - General Dataset')
 # plt.tight_layout()
-# plt.savefig(os.path.join(PLOTS_DIR, "mse_histograms_pretrain.png"), dpi=150, bbox_inches='tight')
+# hist_general_filename = build_experiment_filename(
+#     "mse-histograms",
+#     dataset="general",
+#     prompt_len=prompt_len,
+#     ckpt=ckpt_idx,
+#     noise=NOISE_VARIANCE,
+# )
+# plt.savefig(
+#     os.path.join(SUMMARY_PLOT_DIR, hist_general_filename),
+#     dpi=150,
+#     bbox_inches='tight',
+# )
 # plt.close()
 
-# # Individual histogram plots for pretrain data
-# for run_key, individual_mses in model_histograms_pretrain.items():
-#     plt.figure(figsize=(10, 6))
-#     plt.hist(individual_mses, bins=100, alpha=0.7, density=True, label=f'Model {run_key}', color='blue')
-#     if 'Ridge' in ridge_histograms_pretrain:
-#         plt.hist(ridge_histograms_pretrain['Ridge'], bins=100, alpha=0.7, density=True, label='Ridge', color='red')
-#     if run_key in dmmse_histograms_pretrain:
-#         plt.hist(dmmse_histograms_pretrain[run_key], bins=100, alpha=0.7, density=True, label='DMMSE', color='green')
-#     plt.xlabel('MSE')
-#     plt.ylabel('Density')
-#     plt.title(f'MSE Distribution - {run_key} vs Baselines (Pretrain Dataset)')
-#     plt.legend()
-#     plt.yscale('linear')
-#     plt.grid(True, alpha=0.3)
-#     plt.savefig(os.path.join(PLOTS_DIR, f"histogram_{run_key}_pretrain.png"), dpi=150, bbox_inches='tight')
-#     plt.close()
+# # Add histogram plots for pretrain data
+# print("Creating MSE distribution histograms for pretrain data...")
 
-print(
-    f"Saved unified general dataset plot to "
-    f"{os.path.join(SUMMARY_PLOT_DIR, unified_general_filename)}"
-)
-print(
-    f"Saved unified pretraining dataset plot to "
-    f"{os.path.join(SUMMARY_PLOT_DIR, unified_pretrain_filename)}"
-)
-print(
-    f"Saved general MSE histogram plot to "
-    f"{os.path.join(SUMMARY_PLOT_DIR, hist_general_filename)}"
-)
-print(f"Run-specific plots are available under {BASE_PLOT_DIR} by run key.")
+# print(
+#     f"Saved unified general dataset plot to "
+#     f"{os.path.join(SUMMARY_PLOT_DIR, unified_general_filename)}"
+# )
+# print(
+#     f"Saved unified pretraining dataset plot to "
+#     f"{os.path.join(SUMMARY_PLOT_DIR, unified_pretrain_filename)}"
+# )
+# print(
+#     f"Saved general MSE histogram plot to "
+#     f"{os.path.join(SUMMARY_PLOT_DIR, hist_general_filename)}"
+# )
+# print(f"Run-specific plots are available under {BASE_PLOT_DIR} by run key.")
 
 print("\nMSE losses analysis complete!")
 # %%
