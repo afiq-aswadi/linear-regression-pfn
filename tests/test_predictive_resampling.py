@@ -2,15 +2,10 @@ import pytest
 import torch
 import numpy as np
 from unittest.mock import MagicMock, patch
-import sys
-import os
-
-# Add the parent directory to the path to import modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from predictive_resampling.predictive_resampling import (
     predictive_resampling_beta,
-    predictive_resampling_beta_chunked
+    predictive_resampling_beta_chunked,
 )
 from models.model_config import ModelConfig
 from models.model import unbin_y_values, bin_y_values

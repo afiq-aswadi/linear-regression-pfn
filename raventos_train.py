@@ -13,13 +13,13 @@ Usage (defaults chosen to run quickly on CPU):
 You can override defaults with flags, e.g.:
     python raventos_train.py --steps 10000 --batch 512 --tasks 4 16 64 256 1024 4096 65536
 
-TODO: parallelise training.
 """
 
 import argparse
 import os
 from typing import Dict, List, Tuple
 import torch.multiprocessing as mp
+import logging
 
 import torch
 import matplotlib.pyplot as plt
