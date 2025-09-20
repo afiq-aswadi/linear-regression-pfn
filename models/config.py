@@ -37,7 +37,7 @@ class TrainConfig:
     eval_batch_size: int = 1024
     print_loss_interval: int = 100
     print_metrics_interval: int = 1000
-    n_checkpoints: Optional[int] = 10
+    n_checkpoints: Optional[int] = 10 #NOTE: n_checkpoints doesn't actually mean the number of checkpoints because of logarithmic checkpointing...
     logarithmic_checkpoints: bool = True
 
     def to_dict(self) -> Dict[str, Any]:

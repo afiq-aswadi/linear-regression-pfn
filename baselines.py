@@ -1,8 +1,7 @@
 """
-Matt's code for DMMSE and Ridge regression.
+Baselines for in-context regression.
 
-
-TODO: implement ppds as well
+Implementation adapted from Matthew Farrugia Roberts' code.
 """
 from jaxtyping import Float
 import torch
@@ -16,6 +15,7 @@ from samplers.tasks import RegressionSequenceDistribution
 _DEFAULT_MAX_BYTES = 2**32 # 256 MiB
 # chosen to fit comfortably in matt's GTX 1050 VRAM...
 # fits, e.g., (B=2048 batch * K=16 context * M=2048 tasks)=2**26 float32s
+# don't play around with this too much, might cause OOM errors
 
 def dmmse_w_hat(
     xs: Float[torch.Tensor, "batch seq d_x"],

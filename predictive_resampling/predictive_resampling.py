@@ -1,3 +1,9 @@
+"""
+Predictive resampling for in-context regression.
+
+Implementation adapted from Susan Wei's code.
+"""
+
 import torch
 import numpy as np
 from models.config import ModelConfig

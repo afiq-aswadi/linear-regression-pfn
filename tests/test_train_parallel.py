@@ -91,6 +91,48 @@ def test_run_sweep_logs_eval_metrics(tmp_path, monkeypatch, caplog, base_trainin
     assert {entry["dataset"] for entry in entries} == {"pretrain", "true"}
 
 
+def test_run_sweep_trains_multiple_num_tasks(monkeypatch, base_training_cfg):
+    captured_calls = []
+
+    def fake_train_once(config, training_config, print_model_dimensionality=False, plot_checkpoints=False):
+        captured_calls.append(training_config.num_tasks)
+        return f"run_{training_config.num_tasks}", DummyModel(), "./checkpoints"
+
+    def fake_evaluate_run(run_id, **kwargs):
+        idx = int(run_id.split("_")[-1])
+        return {
+            "run_id": run_id,
+            "mse/pretrain": 0.1 * idx,
+            "mse/true": 0.2 * idx,
+            "deltas/pretrain/delta_dmmse": 0.01 * idx,
+            "deltas/pretrain/delta_ridge": 0.02 * idx,
+            "deltas/true/delta_dmmse": 0.03 * idx,
+            "deltas/true/delta_ridge": 0.04 * idx,
+            "baseline/pretrain/mse_dmmse": 0.001 * idx,
+            "baseline/pretrain/mse_ridge": 0.002 * idx,
+            "baseline/true/mse_dmmse": 0.003 * idx,
+            "baseline/true/mse_ridge": 0.004 * idx,
+        }
+
+    monkeypatch.setattr(train_parallel, "train_once", fake_train_once)
+    monkeypatch.setattr(train_parallel, "evaluate_run", fake_evaluate_run)
+
+    model_cfg = train_parallel.ModelConfig()
+    num_tasks_list = [2, 5, 9]
+
+    _, results = train_parallel.run_sweep(
+        task_sizes=[base_training_cfg.task_size],
+        num_tasks_list=num_tasks_list,
+        model_cfg=model_cfg,
+        base_training_cfg=base_training_cfg,
+        device="cpu",
+    )
+
+    assert captured_calls == num_tasks_list
+    assert [result["num_tasks"] for result in results] == num_tasks_list
+    assert base_training_cfg.num_tasks == 1  # original config untouched
+
+
 def test_run_sweep_parallel_balances_devices(monkeypatch, base_training_cfg):
     def fake_train_single_config(args):
         num_tasks, task_size, _model_cfg, _training_cfg, device_id = args

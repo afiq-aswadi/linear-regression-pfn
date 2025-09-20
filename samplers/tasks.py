@@ -1,3 +1,10 @@
+"""
+Task distributions for in-context regression.
+
+Implementation adapted from Matthew Farrugia Roberts' code.
+"""
+
+
 from typing import Generic, TypeVar
 
 import torch

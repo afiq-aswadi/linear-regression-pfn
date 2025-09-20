@@ -38,7 +38,9 @@ training_config = TrainConfig(training_steps=150000, n_checkpoints=10)
 
 checkpoints = train_logarithmic_checkpoints(training_config.training_steps, training_config.n_checkpoints)
 
-RUNS = {
+
+# hardcoding checkpoints for now
+RUNS = { 
     "m1": {"run_id": "20250826_110937", "task_size": 1, "ckpts": checkpoints},
     "m2": {"run_id": "20250826_110937", "task_size": 2, "ckpts": checkpoints},
     "m3": {"run_id": "20250826_110937", "task_size": 4, "ckpts": checkpoints},
@@ -60,6 +62,7 @@ RUNS = {
 
 if __name__ == "__main__":
     print(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    print(checkpoints)
     print(f"PLOTS_DIR: {PLOTS_DIR}")
     print(f"CHECKPOINTS_DIR: {CHECKPOINTS_DIR}")
 # %%

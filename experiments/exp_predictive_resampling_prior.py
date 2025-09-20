@@ -12,6 +12,7 @@ if __package__ is None or __package__ == "":
         sys.path.insert(0, str(_PROJECT_ROOT))
 
 import os
+import argparse
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -51,12 +52,68 @@ device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
 BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 
+# Optional hard-coded overrides for quick notebook tinkering
+DEFAULT_PLOT_DIMS = None  # e.g. set to 4 to always plot 4 dimensions
+DEFAULT_RUN_KEYS = None   # e.g. set to ["m1", "m5"] to focus on specific runs
+
+# Allow overriding the number of plotted dimensions via CLI or env var
+plot_arg_parser = argparse.ArgumentParser(add_help=False)
+plot_arg_parser.add_argument(
+    "--plot-dims",
+    type=int,
+    default=None,
+    help="Number of output dimensions to plot per checkpoint.",
+)
+plot_arg_parser.add_argument(
+    "--run-keys",
+    nargs="+",
+    default=None,
+    help="Subset of run keys from RUNS to process (e.g. m1 m3 m5).",
+)
+_plot_args, _remaining_argv = plot_arg_parser.parse_known_args()
+sys.argv = [sys.argv[0]] + _remaining_argv
+
+if _plot_args.plot_dims is not None and _plot_args.plot_dims < 1:
+    raise ValueError("--plot-dims must be a positive integer.")
+
+plot_dims_override = _plot_args.plot_dims
+if plot_dims_override is None:
+    env_override = os.getenv("PLOT_DIMS")
+    if env_override is not None:
+        try:
+            plot_dims_override = int(env_override)
+        except ValueError as exc:
+            raise ValueError("Environment variable PLOT_DIMS must be an integer.") from exc
+        if plot_dims_override < 1:
+            raise ValueError("Environment variable PLOT_DIMS must be >= 1.")
+if plot_dims_override is None and DEFAULT_PLOT_DIMS is not None:
+    if DEFAULT_PLOT_DIMS < 1:
+        raise ValueError("DEFAULT_PLOT_DIMS must be >= 1 when set.")
+    plot_dims_override = DEFAULT_PLOT_DIMS
+
+run_keys_override = _plot_args.run_keys
+if run_keys_override is None:
+    env_run_keys = os.getenv("RUN_KEYS")
+    if env_run_keys:
+        run_keys_override = [key.strip() for key in env_run_keys.split(",") if key.strip()]
+if run_keys_override is None and DEFAULT_RUN_KEYS is not None:
+    run_keys_override = list(DEFAULT_RUN_KEYS)
+
+if run_keys_override is not None:
+    missing = [key for key in run_keys_override if key not in RUNS]
+    if missing:
+        raise ValueError(f"Unknown run keys requested: {missing}. Valid keys: {sorted(RUNS)}")
+    runs_iterable = [(key, RUNS[key]) for key in run_keys_override]
+else:
+    runs_iterable = list(RUNS.items())
+
+#%%
 # Configuration
 forward_recursion_steps = 64
 forward_recursion_samples = 1000
 
 # Iterate through models and checkpoints
-for run_key, run_info in RUNS.items():
+for run_key, run_info in runs_iterable:
     print(f"\nProcessing {run_key} (task_size={run_info['task_size']})...")
     run_output_dir = BASE_PLOT_DIR  # Save all plots for this experiment in a single directory
     
@@ -64,10 +121,17 @@ for run_key, run_info in RUNS.items():
     selected_checkpoints = run_info['ckpts'][::4]
     print(f"Selected checkpoints: {selected_checkpoints}")
     
-    # Create figure for this model: 16 rows (dimensions) x len(selected_checkpoints) columns
-    n_dims = 16  # All dimensions
+    # Determine how many dimensions the model actually supports (default to config d_x)
+    full_task_dims = getattr(model_config, "d_x", None) or run_info["task_size"]
+    n_dims = full_task_dims if plot_dims_override is None else min(plot_dims_override, full_task_dims)
+    if plot_dims_override is not None and plot_dims_override > full_task_dims:
+        print(
+            f"  Requested {plot_dims_override} dims to plot but only {full_task_dims} available; plotting {full_task_dims}."
+        )
+
+    # Create figure for this model: n_dims rows (dimensions) x len(selected_checkpoints) columns
     n_checkpoints = len(selected_checkpoints)
-    
+
     fig, axes = plt.subplots(n_dims, n_checkpoints, figsize=(4*n_checkpoints, 3*n_dims))
     if n_checkpoints == 1:
         axes = axes.reshape(-1, 1)
@@ -76,7 +140,13 @@ for run_key, run_info in RUNS.items():
     
     # Load task distribution for this model
     try:
-        pretrain_dist_path = get_pretrain_distribution_path(CHECKPOINTS_DIR, run_info["run_id"], run_info["task_size"], task_size = n_dims)
+        pretrain_task_dims = getattr(model_config, "d_x", run_info["task_size"])
+        pretrain_dist_path = get_pretrain_distribution_path(
+            CHECKPOINTS_DIR,
+            run_info["run_id"],
+            run_info["task_size"],
+            task_size=pretrain_task_dims,
+        )
         task_distribution = load_task_distribution(pretrain_dist_path, device=device)
         print(f"Loaded task distribution from {pretrain_dist_path}")
     except Exception as e:
@@ -99,8 +169,9 @@ for run_key, run_info in RUNS.items():
                 forward_recursion_samples=forward_recursion_samples
             )
             
-            # Plot all 16 dimensions
-            for dim in range(n_dims):
+            # Plot the requested dimensions
+            available_dims = min(n_dims, beta_hat.shape[1])
+            for dim in range(available_dims):
                 ax = axes[dim, ckpt_idx]
                 
                 # Get beta values for this dimension
@@ -146,7 +217,7 @@ for run_key, run_info in RUNS.items():
                 # Add legend only to the first subplot to avoid clutter
                 if dim == 0 and ckpt_idx == 0:
                     ax.legend(fontsize='small')
-            
+
         except Exception as e:
             print(f"    Error processing checkpoint {checkpoint_step}: {e}")
             # Fill with empty plots if error occurs

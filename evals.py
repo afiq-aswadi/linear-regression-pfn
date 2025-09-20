@@ -1,3 +1,9 @@
+"""
+Evaluation metrics for in-context regression.
+
+Implementation adapted from Matthew Farrugia Roberts' code.
+"""
+
 import functools
 import torch
 
