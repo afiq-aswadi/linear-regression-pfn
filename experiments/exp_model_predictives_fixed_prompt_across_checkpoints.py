@@ -1,7 +1,7 @@
 """
-Across checkpoints, plot distribution of model outputs for sampled prompts from either true or general distributions.
+Across checkpoints, plot model's predictive distributions from either true or general distributions.
 
-TODO: check why ridge is so close to dMMSE?
+
 """
 #%%
 
@@ -17,6 +17,8 @@ from experiments.experiment_utils import (
     get_pretrain_distribution_path,
     get_true_distribution_path,
     load_model_from_checkpoint,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
@@ -26,8 +28,8 @@ from experiments.experiment_configs import (
 )
 
 #%%
-m10_run = dict([("m12", RUNS["m12"])])
-m10_run["m12"]["ckpts"] = [m10_run["m12"]["ckpts"][-1]]
+# m10_run = dict([("m12", RUNS["m12"])])
+# m10_run["m12"]["ckpts"] = [m10_run["m12"]["ckpts"][-1]]
 
 
 device = get_device()
@@ -74,6 +76,8 @@ def _plot_grid_across_checkpoints(
     probs_per_ckpt: list,
     model_means_per_ckpt: list,
     title_suffix: str,
+    output_dir: str,
+    filename: str,
     save_plot: bool = True,
 ):
     final_y = ys[:, -1, :]
@@ -122,16 +126,17 @@ def _plot_grid_across_checkpoints(
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     if save_plot:
-        plt.savefig(os.path.join(PLOTS_DIR, f"{run_key}_{title_suffix}.png"))
+        plt.savefig(os.path.join(output_dir, filename))
     else:
         plt.show()
 
 
 #%%
 # Iterate over all configured runs and evaluate across checkpoints
-for run_key, run_info in m10_run.items():
+for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
     ckpt_indices = run_info["ckpts"]
+    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
 
     pretrain_path, general_path = _load_distribution_paths(run_id, num_tasks=run_info["task_size"], task_size=RAVENTOS_SWEEP_MODEL_CONFIG.d_x)
     pretrain_task_distribution = load_task_distribution_from_pt(pretrain_path, device=device)
@@ -166,6 +171,19 @@ for run_key, run_info in m10_run.items():
         probs_per_ckpt,
         model_means_per_ckpt,
         title_suffix=f"num_tasks={run_info['task_size']} | prompt_len={prompt_len} | pretrain-sampled",
+        output_dir=run_output_dir,
+        filename=build_experiment_filename(
+            "predictives-grid",
+            run=run_key,
+            run_id=run_id,
+            tasks=run_info["task_size"],
+            prompt_len=prompt_len,
+            sample="pretrain",
+            noise=NOISE_VARIANCE,
+            ckpt_min=min(ckpt_indices),
+            ckpt_max=max(ckpt_indices),
+            batches=batch_size,
+        ),
     )
 
     # Generalisation-style sampling: sample from true/general distribution
@@ -198,6 +216,19 @@ for run_key, run_info in m10_run.items():
         probs_per_ckpt,
         model_means_per_ckpt,
         title_suffix=f"num_tasks={run_info['task_size']} | prompt_len={prompt_len} | generalisation-sampled",
+        output_dir=run_output_dir,
+        filename=build_experiment_filename(
+            "predictives-grid",
+            run=run_key,
+            run_id=run_id,
+            tasks=run_info["task_size"],
+            prompt_len=prompt_len,
+            sample="generalisation",
+            noise=NOISE_VARIANCE,
+            ckpt_min=min(ckpt_indices),
+            ckpt_max=max(ckpt_indices),
+            batches=batch_size,
+        ),
     )
 
 # %%

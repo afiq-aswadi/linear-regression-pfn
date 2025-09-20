@@ -31,7 +31,9 @@ from experiments.experiment_utils import (
     get_model_codelength,
     get_ridge_codelength,
     load_task_distribution,
-    extract_w_pool
+    extract_w_pool,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
@@ -66,6 +68,8 @@ def energy_distance(x: np.ndarray, y: np.ndarray) -> float:
 #%%
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
+SUMMARY_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__, "summary")
 # Configuration
 forward_recursion_steps = 64
 forward_recursion_samples = 1000
@@ -197,11 +201,18 @@ print("\nPredictive resampling analysis complete!")
 
 # Post-process: per-run plots and CSV export
 if len(results_full) > 0:
-    os.makedirs(PLOTS_DIR, exist_ok=True)
 
     # Optional combined CSV across runs
     try:
-        combined_csv_path = os.path.join(PLOTS_DIR, "energy_distance_all_runs.csv")
+        combined_csv_filename = build_experiment_filename(
+            "energy-distance",
+            extension="csv",
+            recursion_steps=forward_recursion_steps,
+            samples=forward_recursion_samples,
+            n_test=N_test,
+            prompt_len=PROMPT_LEN,
+        )
+        combined_csv_path = os.path.join(SUMMARY_PLOT_DIR, combined_csv_filename)
         with open(combined_csv_path, mode="w", newline="") as f:
             writer = csv.DictWriter(
                 f,
@@ -236,13 +247,33 @@ if len(results_full) > 0:
         plt.legend()
         plt.tight_layout()
 
-        plot_path = os.path.join(PLOTS_DIR, f"energy_distance_{run_key}_M{M_val}.png")
+        run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+        plot_filename = build_experiment_filename(
+            "energy-distance",
+            run=run_key,
+            tasks=M_val,
+            recursion_steps=forward_recursion_steps,
+            samples=forward_recursion_samples,
+            n_test=N_test,
+            prompt_len=PROMPT_LEN,
+        )
+        plot_path = os.path.join(run_output_dir, plot_filename)
         plt.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close()
         print(f"Saved ED plot: {plot_path}")
 
         # Per-run CSV of aggregated means
-        per_run_csv_path = os.path.join(PLOTS_DIR, f"energy_distance_{run_key}_M{M_val}.csv")
+        per_run_csv_filename = build_experiment_filename(
+            "energy-distance-summary",
+            extension="csv",
+            run=run_key,
+            tasks=M_val,
+            recursion_steps=forward_recursion_steps,
+            samples=forward_recursion_samples,
+            n_test=N_test,
+            prompt_len=PROMPT_LEN,
+        )
+        per_run_csv_path = os.path.join(run_output_dir, per_run_csv_filename)
         try:
             with open(per_run_csv_path, mode="w", newline="") as f:
                 writer = csv.writer(f)
@@ -252,5 +283,11 @@ if len(results_full) > 0:
             print(f"Saved per-run ED CSV: {per_run_csv_path}")
         except Exception as e:
             print(f"Warning: failed to write per-run ED CSV for {run_key}: {e}")
+
+# %%
+
+print(
+    f"\nEnergy distance artefacts saved to {SUMMARY_PLOT_DIR} and per-run folders under {BASE_PLOT_DIR}."
+)
 
 # %%

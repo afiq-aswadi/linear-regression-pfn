@@ -6,6 +6,7 @@ TODO: check what happened with get_batch? might've messed up
 """
 #%%
 
+import os
 import torch
 
 from samplers.tasks import RegressionSequenceDistribution
@@ -17,20 +18,24 @@ from experiments.experiment_utils import (
     get_true_distribution_path,
     load_model_from_checkpoint,
     load_task_distribution,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
     RUNS,
     CHECKPOINTS_DIR,
+    PLOTS_DIR,
 )
 
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 #%%
 
 n_batches = 16
 batch_size = 16
-indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.n_bins)
+indices = torch.linspace(model_config.y_min, model_config.y_max, model_config.n_ctx)
 ckpt_idx = 149999  #what checkpoint we want to use
 
 
@@ -44,6 +49,7 @@ import torch.nn.functional as F
 # Iterate over all configured runs and evaluate the final checkpoint (index 4)
 for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
+    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
    
     # Build model + load checkpoint
     model_path = build_checkpoint_path(CHECKPOINTS_DIR, run_id, ckpt_idx)
@@ -105,7 +111,20 @@ for run_key, run_info in RUNS.items():
         axes[i].set_visible(False)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.show()
+    filename = build_experiment_filename(
+        "checkpoint-grid",
+        run=run_key,
+        run_id=run_id,
+        tasks=run_info["task_size"],
+        ckpt=ckpt_idx,
+        dataset="pretrain",
+        noise=NOISE_VARIANCE,
+        batches=batch_size,
+    )
+    plot_path = os.path.join(run_output_dir, filename)
+    plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved pretrain grid: {plot_path}")
 
 #%%
 
@@ -117,6 +136,7 @@ import torch.nn.functional as F
 # Iterate over all configured runs and evaluate the final checkpoint (index 4)
 for run_key, run_info in RUNS.items():
     run_id = run_info["run_id"]
+    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
     ckpt_idx = 2  # explicitly use the final checkpoint
 
     # Build model + load checkpoint
@@ -190,5 +210,20 @@ for run_key, run_info in RUNS.items():
         axes[i].set_visible(False)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.show()
+    filename = build_experiment_filename(
+        "checkpoint-grid",
+        run=run_key,
+        run_id=run_id,
+        tasks=run_info["task_size"],
+        ckpt=ckpt_idx,
+        dataset="general",
+        noise=NOISE_VARIANCE,
+        batches=batch_size,
+    )
+    plot_path = os.path.join(run_output_dir, filename)
+    plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved general grid: {plot_path}")
 # %%
+
+print(f"\nCheckpoint grid figures saved under {BASE_PLOT_DIR} per run.")

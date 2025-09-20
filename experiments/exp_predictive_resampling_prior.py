@@ -26,7 +26,9 @@ from experiments.experiment_utils import (
     get_model_codelength,
     get_ridge_codelength,
     load_task_distribution,
-    extract_w_pool
+    extract_w_pool,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
@@ -39,6 +41,7 @@ from experiments.experiment_configs import (
 #%%
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 
 # Configuration
 forward_recursion_steps = 64
@@ -47,6 +50,7 @@ forward_recursion_samples = 1000
 # Iterate through models and checkpoints
 for run_key, run_info in RUNS.items():
     print(f"\nProcessing {run_key} (task_size={run_info['task_size']})...")
+    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
     
     # Get every 4th checkpoint
     selected_checkpoints = run_info['ckpts'][::4]
@@ -149,13 +153,22 @@ for run_key, run_info in RUNS.items():
     plt.tight_layout()
     
     # Save the plot
-    plot_filename = f'predictive_resampling_{run_key}_task_size_{run_info["task_size"]}.png'
-    plot_path = os.path.join(PLOTS_DIR, plot_filename)
+    plot_filename = build_experiment_filename(
+        "predictive-resampling",
+        run=run_key,
+        tasks=run_info["task_size"],
+        ckpt_min=min(selected_checkpoints),
+        ckpt_max=max(selected_checkpoints),
+        ckpt_count=len(selected_checkpoints),
+        recursion_steps=forward_recursion_steps,
+        samples=forward_recursion_samples,
+    )
+    plot_path = os.path.join(run_output_dir, plot_filename)
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     print(f"Saved plot: {plot_path}")
     
     plt.close()  # Close to free memory
 
-print("\nPredictive resampling analysis complete!")
+print(f"\nPredictive resampling analysis complete! Check {BASE_PLOT_DIR} for outputs.")
 
 # %%

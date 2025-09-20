@@ -8,6 +8,7 @@ TODO:
 
 #%%
 
+import os
 import torch
 import matplotlib.pyplot as plt
 from torch.nn import MSELoss
@@ -23,6 +24,8 @@ from experiments.experiment_utils import (
     get_true_distribution_path,
     load_model_from_checkpoint,
     load_task_distribution,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
@@ -34,14 +37,15 @@ from experiments.experiment_configs import (
 
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 
 #%%
-num_examples = 64 #prompt length
-batch_size = 256
-ckpt_idx = 149999  #what checkpoint we want to use
+num_examples = 32 #prompt length
+batch_size = 32
+ckpt_idx = 149999 
 task_size = 16
-NOISE_VARIANCE = 0
-MSE_START_POINT = 0 #compute mse from this point onwards
+NOISE_VARIANCE = 0.25
+MSE_START_POINT = 0 
 
 #%%
 # m1_run = dict([("m1", RUNS["m1"])])
@@ -220,7 +224,17 @@ axes[1,2].legend()
 axes[1,2].grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig(f'{PLOTS_DIR}/raventos_replication_task_size_{task_size}_prompt_len_{num_examples}_start_point_{MSE_START_POINT}.png', dpi=300, bbox_inches='tight')
+plot_filename = build_experiment_filename(
+    "raventos-replication",
+    prompt_len=num_examples,
+    noise=NOISE_VARIANCE,
+    start=MSE_START_POINT,
+    ckpt=ckpt_idx,
+    tasks=task_size,
+)
+plot_path = os.path.join(BASE_PLOT_DIR, plot_filename)
+plt.savefig(plot_path, dpi=300, bbox_inches='tight')
 plt.show()
+print(f"Saved Raventos replication plot: {plot_path}")
 
 # %%

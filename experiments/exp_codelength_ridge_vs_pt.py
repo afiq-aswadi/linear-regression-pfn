@@ -24,7 +24,9 @@ from experiments.experiment_utils import (
     load_model_from_checkpoint,
     get_model_codelength,
     get_ridge_codelength,
-    load_task_distribution
+    load_task_distribution,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
@@ -120,6 +122,7 @@ def ridge_ppd(xs, ys, model_config: ModelConfig, sigma_squared=0.25):
 #%%
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
 
 # Configuration
 batch_size = 8
@@ -160,7 +163,15 @@ def compute_codelengths_for_model(run_key, run_info, xs, ys, distribution_type):
     
     return codelength_model, codelength_ridge
 
-def plot_codelengths(run_key, codelength_model, codelength_ridge, distribution_type):
+def plot_codelengths(
+    run_key,
+    num_tasks,
+    codelength_model,
+    codelength_ridge,
+    distribution_type,
+    output_dir,
+    filename,
+):
     """Create and save codelength comparison plot."""
     model_cl = codelength_model.mean(dim=0).detach().cpu().numpy()
     ridge_cl = codelength_ridge.mean(dim=0).detach().cpu().numpy()
@@ -170,16 +181,16 @@ def plot_codelengths(run_key, codelength_model, codelength_ridge, distribution_t
     plt.plot(ridge_cl, label='Ridge Regression', linewidth=2, color='#A23B72')
     plt.xlabel('Sequence Position')
     plt.ylabel('Cumulative Codelength (nats)')
-    plt.title(f'{run_key} | Codelength Comparison | {distribution_type} Distribution')
+    plt.title(
+        f'{run_key} | M={num_tasks} | Codelength Comparison | {distribution_type} Distribution'
+    )
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    # Save plot
-    filename = f"codelength_{run_key}_{distribution_type}.png"
-    plt.savefig(os.path.join(PLOTS_DIR, filename), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(output_dir, filename), dpi=150, bbox_inches='tight')
     plt.close()
     
-    print(f"Saved plot: {filename}")
+    print(f"Saved plot: {os.path.join(output_dir, filename)}")
 
 #%%
 # Process all models for both distributions
@@ -187,14 +198,31 @@ print("Processing all models...")
 
 for run_key, run_info in RUNS.items():
     print(f"\nProcessing {run_key} (task_size={run_info['task_size']})...")
-    
+    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+
     try:
         # 1. Generalizing distribution (shared dataset)
         print(f"  Computing codelengths for generalizing distribution...")
         codelength_model_gen, codelength_ridge_gen = compute_codelengths_for_model(
             run_key, run_info, xs_general, ys_general, "generalizing"
         )
-        plot_codelengths(run_key, codelength_model_gen, codelength_ridge_gen, "generalizing")
+        plot_codelengths(
+            run_key,
+            run_info["task_size"],
+            codelength_model_gen,
+            codelength_ridge_gen,
+            "generalizing",
+            run_output_dir,
+            build_experiment_filename(
+                "codelength",
+                run=run_key,
+                tasks=run_info["task_size"],
+                dataset="generalizing",
+                prompt_len=prompt_len,
+                ckpt=ckpt_idx,
+                batches=batch_size,
+            ),
+        )
         
         # 2. Pretraining distribution (model-specific dataset)
         print(f"  Loading pretraining distribution and computing codelengths...")
@@ -209,14 +237,28 @@ for run_key, run_info in RUNS.items():
         codelength_model_pre, codelength_ridge_pre = compute_codelengths_for_model(
             run_key, run_info, xs_pretrain, ys_pretrain, "pretraining"
         )
-        plot_codelengths(run_key, codelength_model_pre, codelength_ridge_pre, "pretraining")
+        plot_codelengths(
+            run_key,
+            run_info["task_size"],
+            codelength_model_pre,
+            codelength_ridge_pre,
+            "pretraining",
+            run_output_dir,
+            build_experiment_filename(
+                "codelength",
+                run=run_key,
+                tasks=run_info["task_size"],
+                dataset="pretraining",
+                prompt_len=prompt_len,
+                ckpt=ckpt_idx,
+                batches=batch_size,
+            ),
+        )
         
     except Exception as e:
         print(f"  Error processing {run_key}: {str(e)}")
         continue
 
-print("\nCodelength analysis complete! Check the plots/ directory for results.")
+print(f"\nCodelength analysis complete! Check {BASE_PLOT_DIR} for results.")
 
 #%%
-
-

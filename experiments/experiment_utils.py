@@ -8,7 +8,9 @@ Shared utilities for experiment scripts:
 """
 
 import os
-from typing import Optional
+import re
+from pathlib import Path
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -228,12 +230,73 @@ def get_ridge_codelength(config: ModelConfig, xs: torch.Tensor, ys: torch.Tensor
 
 
 
+def sanitize_filename_component(component: Any) -> str:
+    """Convert an arbitrary value into a filesystem-friendly string."""
+    text = "" if component is None else str(component)
+    text = text.strip()
+    if not text:
+        return "na"
+
+    # Normalise separators before stripping unwanted characters
+    text = (
+        text.replace("=", "-")
+        .replace("|", "-")
+        .replace(":", "-")
+        .replace(" ", "-")
+        .replace("/", "-")
+    )
+
+    # Allow alphanumeric, dash, underscore, and dot; collapse everything else
+    text = re.sub(r"[^A-Za-z0-9._-]", "-", text)
+    text = re.sub(r"-{2,}", "-", text)
+    text = text.strip("-_.")
+    return text or "na"
+
+
+def _stringify_filename_value(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        parts = [_stringify_filename_value(v) for v in value if v is not None]
+        return "-".join(part for part in parts if part)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return "" if value is None else str(value)
+
+
+def build_experiment_filename(prefix: str, extension: str = "png", **params: Any) -> str:
+    """Create a consistent filename without reserved characters like '='."""
+    components = [sanitize_filename_component(prefix)]
+    for key, value in params.items():
+        if value is None:
+            continue
+        key_part = sanitize_filename_component(key)
+        value_part = sanitize_filename_component(_stringify_filename_value(value))
+        if not value_part:
+            continue
+        components.append(f"{key_part}-{value_part}" if key_part else value_part)
+
+    base = "_".join(filter(None, components)) or "plot"
+    if extension:
+        return f"{base}.{extension.lstrip('.')}"
+    return base
+
+
+def ensure_experiment_dir(base_dir: str, script_path: str, *extra_components: Any) -> str:
+    """Ensure the experiment's plot directory (and optional subfolders) exists."""
+    script_name = sanitize_filename_component(Path(script_path).stem)
+    path = Path(base_dir) / script_name
+    for component in extra_components:
+        if component is None:
+            continue
+        path /= sanitize_filename_component(component)
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 #%%
 __all__ = [
     "get_device",
-    "default_model_config",
     "get_checkpoints_dir",
     "build_checkpoint_path",
     "get_pretrain_distribution_path",
@@ -244,4 +307,7 @@ __all__ = [
     "ridge_ppd",
     "get_model_codelength",
     "get_ridge_codelength",
+    "sanitize_filename_component",
+    "build_experiment_filename",
+    "ensure_experiment_dir",
 ]

@@ -21,7 +21,9 @@ from experiments.experiment_utils import (
     get_pretrain_distribution_path,
     get_true_distribution_path,
     load_model_from_checkpoint,
-    load_task_distribution
+    load_task_distribution,
+    build_experiment_filename,
+    ensure_experiment_dir,
 )
 from experiments.experiment_configs import (
     RAVENTOS_SWEEP_MODEL_CONFIG,
@@ -33,11 +35,13 @@ from experiments.experiment_configs import (
 #%%
 device = get_device()
 model_config = RAVENTOS_SWEEP_MODEL_CONFIG
+BASE_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__)
+SUMMARY_PLOT_DIR = ensure_experiment_dir(PLOTS_DIR, __file__, "summary")
 
 # Configuration
 batch_size = 8
 NOISE_VARIANCE = 0.25
-prompt_len = 1024
+prompt_len = 128
 task_size = 16  # Using same task_size as original
 
 # Use final checkpoint (149999) for all models
@@ -99,12 +103,12 @@ def compute_mse_losses_per_position(run_key, run_info, xs, ys, dmmse_preds=None)
     # Compute MSE loss at each position, averaged over batch
     mse_losses_model = []
     mse_losses_ridge = []
-    # mse_losses_dmmse = []
+    mse_losses_dmmse = []
     
     # Also collect individual MSE values for histograms
     individual_mses_model = []
     individual_mses_ridge = []
-    # individual_mses_dmmse = []
+    individual_mses_dmmse = []
     
     for pos in range(ys_squeezed.shape[1]):  # For each in-context example
         # Individual MSE values for each batch item at this position
@@ -121,14 +125,14 @@ def compute_mse_losses_per_position(run_key, run_info, xs, ys, dmmse_preds=None)
         mse_losses_ridge.append(mse_ridge)
         
         # Add DMMSE if provided
-        # if dmmse_preds is not None:
-            # dmmse_squeezed = dmmse_preds.squeeze(-1) if dmmse_preds.dim() == 3 else dmmse_preds
-            # mse_dmmse_batch = ((dmmse_squeezed[:, pos] - ys_squeezed[:, pos]) ** 2).detach().cpu().numpy()
-            # individual_mses_dmmse.extend(mse_dmmse_batch)
-            # mse_dmmse = mse_dmmse_batch.mean()
-            # mse_losses_dmmse.append(mse_dmmse)
-    return mse_losses_model, mse_losses_ridge, individual_mses_model, individual_mses_ridge
-    # return mse_losses_model, mse_losses_ridge, mse_losses_dmmse, individual_mses_model, individual_mses_ridge, individual_mses_dmmse
+        if dmmse_preds is not None:
+            dmmse_squeezed = dmmse_preds.squeeze(-1) if dmmse_preds.dim() == 3 else dmmse_preds
+            mse_dmmse_batch = ((dmmse_squeezed[:, pos] - ys_squeezed[:, pos]) ** 2).detach().cpu().numpy()
+            individual_mses_dmmse.extend(mse_dmmse_batch)
+            mse_dmmse = mse_dmmse_batch.mean()
+            mse_losses_dmmse.append(mse_dmmse)
+    # return mse_losses_model, mse_losses_ridge, individual_mses_model, individual_mses_ridge, individual_mses_dmmse
+    return mse_losses_model, mse_losses_ridge, mse_losses_dmmse, individual_mses_model, individual_mses_ridge, individual_mses_dmmse
 
 # Collect data for unified plot and histograms
 model_results_general = {}
@@ -149,7 +153,8 @@ print("Processing all models...")
 
 for run_key, run_info in RUNS.items():
     print(f"\nProcessing {run_key} (task_size={run_info['task_size']})...")
-    
+    run_output_dir = ensure_experiment_dir(PLOTS_DIR, __file__, run_key)
+
     try:
         # 1. Generalizing distribution (shared dataset)
         print(f"  Computing MSE losses for generalizing distribution...")
@@ -159,20 +164,20 @@ for run_key, run_info in RUNS.items():
         discrete_dist_distribution = load_task_distribution(discrete_dist_path, device=device)
         
         # Compute DMMSE predictions using this model's discrete distribution on general dataset
-        # dmmse_preds_general = dmmse_predictor(xs_general, ys_general, discrete_dist_distribution, NOISE_VARIANCE, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max).to(device)
+        dmmse_preds_general = dmmse_predictor(xs_general, ys_general, discrete_dist_distribution, NOISE_VARIANCE, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max).to(device)
 
-        mse_losses_model_gen, mse_losses_ridge_gen, individual_mses_model_gen, individual_mses_ridge_gen = compute_mse_losses_per_position(
-            run_key, run_info, xs_general, ys_general,
-        )
-
-        # mse_losses_model_gen, mse_losses_ridge_gen, mse_losses_dmmse_gen, individual_mses_model_gen, individual_mses_ridge_gen, individual_mses_dmmse_gen = compute_mse_losses_per_position(
-        #     run_key, run_info, xs_general, ys_general, #dmmse_preds_general
+        # mse_losses_model_gen, mse_losses_ridge_gen, individual_mses_model_gen, individual_mses_ridge_gen = compute_mse_losses_per_position(
+        #     run_key, run_info, xs_general, ys_general,
         # )
+
+        mse_losses_model_gen, mse_losses_ridge_gen, mse_losses_dmmse_gen, individual_mses_model_gen, individual_mses_ridge_gen, individual_mses_dmmse_gen = compute_mse_losses_per_position(
+            run_key, run_info, xs_general, ys_general, dmmse_preds_general
+        )
         
         model_results_general[run_key] = mse_losses_model_gen
-        # dmmse_results_general[run_key] = mse_losses_dmmse_gen
+        dmmse_results_general[run_key] = mse_losses_dmmse_gen
         model_histograms_general[run_key] = individual_mses_model_gen
-        # dmmse_histograms_general[run_key] = individual_mses_dmmse_gen
+        dmmse_histograms_general[run_key] = individual_mses_dmmse_gen
         if run_key == 'm1':  # Only need to store ridge once since it's the same for all
             ridge_results_general['Ridge'] = mse_losses_ridge_gen
             ridge_histograms_general['Ridge'] = individual_mses_ridge_gen
@@ -182,13 +187,27 @@ for run_key, run_info in RUNS.items():
         x_values = range(1, len(mse_losses_model_gen) + 1)
         plt.plot(x_values, mse_losses_model_gen, label=f'Model {run_key}', linewidth=2, color='blue', marker='o')
         plt.plot(x_values, mse_losses_ridge_gen, label='Ridge Regression', linewidth=2, color='red', linestyle='--', marker='s')
-        # plt.plot(x_values, mse_losses_dmmse_gen, label='DMMSE', linewidth=2, color='green', linestyle=':', marker='^')
+        plt.plot(x_values, mse_losses_dmmse_gen, label='DMMSE', linewidth=2, color='green', linestyle=':', marker='^')
         plt.xlabel('Number of In-Context Examples')
         plt.ylabel('MSE Loss')
         plt.title(f'MSE Loss vs In-Context Examples - {run_key} (General Dataset)')
         plt.legend()
         plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(PLOTS_DIR, f"individual_{run_key}_general.png"), dpi=150, bbox_inches='tight')
+        general_curve_filename = build_experiment_filename(
+            "mse-curve",
+            run=run_key,
+            tasks=run_info["task_size"],
+            dataset="general",
+            prompt_len=prompt_len,
+            ckpt=ckpt_idx,
+            noise=NOISE_VARIANCE,
+            batches=batch_size,
+        )
+        plt.savefig(
+            os.path.join(run_output_dir, general_curve_filename),
+            dpi=150,
+            bbox_inches='tight',
+        )
         plt.close()
         
         # 2. Pretraining distribution (model-specific dataset)
@@ -202,10 +221,14 @@ for run_key, run_info in RUNS.items():
         ys_pretrain = ys_pretrain.to(device)
 
         # Compute DMMSE predictions for pretraining data
-        # dmmse_preds_pretrain = dmmse_predictor(xs_pretrain, ys_pretrain, pretrain_dist_distribution, NOISE_VARIANCE, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max).to(device)
+        dmmse_preds_pretrain = dmmse_predictor(xs_pretrain, ys_pretrain, pretrain_dist_distribution, NOISE_VARIANCE, bound_by_y_min_max=True, y_min=model_config.y_min, y_max=model_config.y_max).to(device)
         
-        mse_losses_model_pre, mse_losses_ridge_pre, individual_mses_model_pre, individual_mses_ridge_pre = compute_mse_losses_per_position(
-            run_key, run_info, xs_pretrain, ys_pretrain,
+        # mse_losses_model_pre, mse_losses_ridge_pre, individual_mses_model_pre, individual_mses_ridge_pre = compute_mse_losses_per_position(
+        #     run_key, run_info, xs_pretrain, ys_pretrain,
+        # )
+
+        mse_losses_model_pre, mse_losses_ridge_pre, mse_losses_dmmse_pre, individual_mses_model_pre, individual_mses_ridge_pre, individual_mses_dmmse_pre = compute_mse_losses_per_position(
+            run_key, run_info, xs_pretrain, ys_pretrain, dmmse_preds_pretrain
         )
 
         # mse_losses_model_pre, mse_losses_ridge_pre, mse_losses_dmmse_pre, individual_mses_model_pre, individual_mses_ridge_pre, individual_mses_dmmse_pre = compute_mse_losses_per_position(
@@ -213,9 +236,9 @@ for run_key, run_info in RUNS.items():
         # )
         
         model_results_pretrain[run_key] = mse_losses_model_pre
-        # dmmse_results_pretrain[run_key] = mse_losses_dmmse_pre
+        dmmse_results_pretrain[run_key] = mse_losses_dmmse_pre
         model_histograms_pretrain[run_key] = individual_mses_model_pre
-        # dmmse_histograms_pretrain[run_key] = individual_mses_dmmse_pre
+        dmmse_histograms_pretrain[run_key] = individual_mses_dmmse_pre
         if run_key == 'm1':  # Only need to store ridge once since it's the same for all
             ridge_results_pretrain['Ridge'] = mse_losses_ridge_pre
             ridge_histograms_pretrain['Ridge'] = individual_mses_ridge_pre
@@ -225,13 +248,27 @@ for run_key, run_info in RUNS.items():
         x_values = range(1, len(mse_losses_model_pre) + 1)
         plt.plot(x_values, mse_losses_model_pre, label=f'Model {run_key}', linewidth=2, color='blue', marker='o')
         plt.plot(x_values, mse_losses_ridge_pre, label='Ridge Regression', linewidth=2, color='red', linestyle='--', marker='s')
-        # plt.plot(x_values, mse_losses_dmmse_pre, label='DMMSE', linewidth=2, color='green', linestyle=':', marker='^')
+        plt.plot(x_values, mse_losses_dmmse_pre, label='DMMSE', linewidth=2, color='green', linestyle=':', marker='^')
         plt.xlabel('Number of In-Context Examples')
         plt.ylabel('MSE Loss')
         plt.title(f'MSE Loss vs In-Context Examples - {run_key} (Pretraining Dataset)')
         plt.legend()
         plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(PLOTS_DIR, f"individual_{run_key}_pretrain.png"), dpi=150, bbox_inches='tight')
+        pretrain_curve_filename = build_experiment_filename(
+            "mse-curve",
+            run=run_key,
+            tasks=run_info["task_size"],
+            dataset="pretrain",
+            prompt_len=prompt_len,
+            ckpt=ckpt_idx,
+            noise=NOISE_VARIANCE,
+            batches=batch_size,
+        )
+        plt.savefig(
+            os.path.join(run_output_dir, pretrain_curve_filename),
+            dpi=150,
+            bbox_inches='tight',
+        )
         plt.close()
         
     except Exception as e:
@@ -260,7 +297,18 @@ plt.ylabel('MSE Loss')
 plt.title('MSE Loss vs Number of In-Context Examples (General Dataset)')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.grid(True, alpha=0.3)
-plt.savefig(os.path.join(PLOTS_DIR, "unified_mse_general.png"), dpi=150, bbox_inches='tight')
+unified_general_filename = build_experiment_filename(
+    "unified-mse",
+    dataset="general",
+    prompt_len=prompt_len,
+    ckpt=ckpt_idx,
+    noise=NOISE_VARIANCE,
+)
+plt.savefig(
+    os.path.join(SUMMARY_PLOT_DIR, unified_general_filename),
+    dpi=150,
+    bbox_inches='tight',
+)
 plt.close()
 
 # Unified plot - Pretraining dataset
@@ -282,7 +330,18 @@ plt.ylabel('MSE Loss')
 plt.title('MSE Loss vs Number of In-Context Examples (Pretraining Dataset)')
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.grid(True, alpha=0.3)
-plt.savefig(os.path.join(PLOTS_DIR, "unified_mse_pretrain.png"), dpi=150, bbox_inches='tight')
+unified_pretrain_filename = build_experiment_filename(
+    "unified-mse",
+    dataset="pretrain",
+    prompt_len=prompt_len,
+    ckpt=ckpt_idx,
+    noise=NOISE_VARIANCE,
+)
+plt.savefig(
+    os.path.join(SUMMARY_PLOT_DIR, unified_pretrain_filename),
+    dpi=150,
+    bbox_inches='tight',
+)
 plt.close()
 
 # Create histogram plots for MSE distributions
@@ -308,7 +367,18 @@ for i, (run_key, individual_mses) in enumerate(model_histograms_general.items())
 
 plt.suptitle('MSE Distribution Histograms - General Dataset')
 plt.tight_layout()
-plt.savefig(os.path.join(PLOTS_DIR, "mse_histograms_general.png"), dpi=150, bbox_inches='tight')
+hist_general_filename = build_experiment_filename(
+    "mse-histograms",
+    dataset="general",
+    prompt_len=prompt_len,
+    ckpt=ckpt_idx,
+    noise=NOISE_VARIANCE,
+)
+plt.savefig(
+    os.path.join(SUMMARY_PLOT_DIR, hist_general_filename),
+    dpi=150,
+    bbox_inches='tight',
+)
 plt.close()
 
 # Individual histogram plots for better readability - General Dataset
@@ -371,11 +441,19 @@ print("Creating MSE distribution histograms for pretrain data...")
 #     plt.savefig(os.path.join(PLOTS_DIR, f"histogram_{run_key}_pretrain.png"), dpi=150, bbox_inches='tight')
 #     plt.close()
 
-print(f"Saved unified general dataset plot: unified_mse_general.png")
-print(f"Saved unified pretraining dataset plot: unified_mse_pretrain.png")
-print(f"Saved individual plots for each model and dataset combination")
-print(f"Saved MSE histogram plots: mse_histograms_general.png and individual histogram_[model]_general.png")
-print(f"Saved MSE histogram plots: mse_histograms_pretrain.png and individual histogram_[model]_pretrain.png")
+print(
+    f"Saved unified general dataset plot to "
+    f"{os.path.join(SUMMARY_PLOT_DIR, unified_general_filename)}"
+)
+print(
+    f"Saved unified pretraining dataset plot to "
+    f"{os.path.join(SUMMARY_PLOT_DIR, unified_pretrain_filename)}"
+)
+print(
+    f"Saved general MSE histogram plot to "
+    f"{os.path.join(SUMMARY_PLOT_DIR, hist_general_filename)}"
+)
+print(f"Run-specific plots are available under {BASE_PLOT_DIR} by run key.")
 
-print("\nMSE losses analysis complete! Check the plots/ directory for results.")
+print("\nMSE losses analysis complete!")
 # %%
