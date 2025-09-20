@@ -14,24 +14,20 @@
 
 We introduce an autoregressive attention masking scheme that allows the PFN to be trained and used for sequential prediction:
 
-<div align="center">
-
-![Autoregressive PFN Masking](images/autoregressive_pfn_mask.png)
-*Autoregressive attention masking scheme for sequential prediction (darker shades are the positions we train on)*
-
-</div>
+<p align="center">
+  <img src="images/autoregressive_pfn_mask.png" alt="Autoregressive PFN Masking" width="360">
+</p>
+<p align="center"><em>Autoregressive attention masking scheme for sequential prediction (darker shades are the positions we train on).</em></p>
 
 We perform predictive resampling on the PFN to study the model's implied prior:
 
-<div align="center">
-
-![Predictive Resampling Results (task size 1)](images/predictive_resampling_run-m1_tasks-1.png)
-![Predictive Resampling Results (task size 16)](images/predictive_resampling_run-m16_tasks-16.png)
-
-
-*Evolution of learned priors during training for a PFN trained on 1-context tasks. Each column shows a different training checkpoint, rows show different output dimensions. The plots compare the PFN's learned prior (blue) against the true N(0,1) prior (red) and actual task distribution (orange).*
-
-</div>
+<p align="center">
+  <img src="images/predictive_resampling_run-m1_tasks-1.png" alt="Predictive Resampling Results (task size 1)" width="420">
+</p>
+<p align="center">
+  <img src="images/predictive_resampling_run-m16_tasks-16.png" alt="Predictive Resampling Results (task size 16)" width="420">
+</p>
+<p align="center"><em>Evolution of learned priors during training for a PFN trained on 1-context tasks. Each column shows a different training checkpoint, rows show different output dimensions. The plots compare the PFN's learned prior (blue) against the true N(0,1) prior (red) and actual task distribution (orange).</em></p>
 
 
 
@@ -126,10 +122,9 @@ ModelConfig(
 )
 ```
 
-## Todos/ Future Work:
+## Todos / Future Work
 
-- [] Better bucketing of y-values. Unfortunately my previous training run had buckets that were too narrow. 
-- [] Consider setups other than linear regression.
-- [] Cleaning up code and removing redundant functions...
-- [] Logic to remove hardcoding...
-
+- [ ] Better bucketing of y-values. Unfortunately my previous training run had buckets that were too narrow.
+- [ ] Consider setups other than linear regression.
+- [ ] Cleaning up code and removing redundant functions.
+- [ ] Logic to remove hardcoding.
