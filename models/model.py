@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from .pfn_embedding import JointEmbedding, Unembed
 from .autoregressive_pfn_attention import PFNAttention
 
-from .model_config import ModelConfig
+from .config import ModelConfig
 
 #%%   
 

@@ -4,7 +4,7 @@ Define model configs, checkpoint ids here
 #%%
 import os
 
-from models.model_config import ModelConfig
+from models.config import ModelConfig, TrainConfig
 from train import train_logarithmic_checkpoints
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,12 +26,9 @@ RAVENTOS_SWEEP_MODEL_CONFIG = ModelConfig(
     y_max=7,
 )
 
-training_config = {
-    "training_steps": 150000,
-    "n_checkpoints": 10,
-}
+training_config = TrainConfig(training_steps=150000, n_checkpoints=10)
 
-checkpoints = train_logarithmic_checkpoints(training_config["training_steps"], training_config["n_checkpoints"])
+checkpoints = train_logarithmic_checkpoints(training_config.training_steps, training_config.n_checkpoints)
 
 RUNS = {
     "m1": {"run_id": "20250826_110937", "task_size": 1, "ckpts": checkpoints},

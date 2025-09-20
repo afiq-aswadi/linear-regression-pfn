@@ -25,7 +25,7 @@ import logging
 import torch
 
 from train import train as train_once
-from models.model_config import ModelConfig
+from models.config import ModelConfig, TrainConfig
 from evals import ICLEvaluator
 from samplers.tasks import (
     DiscreteTaskDistribution,
@@ -46,10 +46,11 @@ def train_single_config(args_tuple):
     device = f"cuda:{device_id}"
     torch.cuda.set_device(device_id)
     
-    training_cfg = dict(base_training_cfg)
-    training_cfg["task_size"] = task_size
-    training_cfg["num_tasks"] = int(num_tasks)
-    training_cfg["device"] = device
+    training_cfg = base_training_cfg.copy_with(
+        task_size=task_size,
+        num_tasks=int(num_tasks),
+        device=device,
+    )
     
     logger.info(
         "Starting training on device %s | num_tasks=%s task_size=%s",
@@ -72,9 +73,9 @@ def train_single_config(args_tuple):
         checkpoints_dir=checkpoints_dir,
         model=model,
         task_size=task_size,
-        noise_var=training_cfg["noise_var"],
-        num_examples=training_cfg["num_examples"],
-        eval_batch_size=training_cfg["eval_batch_size"],
+        noise_var=training_cfg.noise_var,
+        num_examples=training_cfg.num_examples,
+        eval_batch_size=training_cfg.eval_batch_size,
         device="cpu",  # Eval on CPU
     )
     
@@ -179,7 +180,7 @@ def run_sweep(
     task_sizes: List[int],
     num_tasks_list: List[int],
     model_cfg: ModelConfig,
-    base_training_cfg: Dict,
+    base_training_cfg: TrainConfig,
     device: str,
 ) -> Tuple[List[int], List[Dict[str, float]]]:
     """
@@ -193,9 +194,11 @@ def run_sweep(
     # each task_size sequentially and aggregate metrics per num_tasks.
     for task_size in task_sizes:
         for num_tasks in num_tasks_list:
-            training_cfg = dict(base_training_cfg)
-            training_cfg["task_size"] = task_size
-            training_cfg["num_tasks"] = int(num_tasks)
+            training_cfg = base_training_cfg.copy_with(
+                task_size=task_size,
+                num_tasks=int(num_tasks),
+                device=device,
+            )
 
             logger.info(
                 "Running training sweep | num_tasks=%s task_size=%s",
@@ -206,7 +209,6 @@ def run_sweep(
                 config=model_cfg,
                 training_config=training_cfg,
                 print_model_dimensionality=False,
-                plot_checkpoints=False,
             )
 
             logger.info("Evaluating trained model | run_id=%s", run_id)
@@ -215,9 +217,9 @@ def run_sweep(
                 checkpoints_dir=checkpoints_dir,
                 model=model,
                 task_size=task_size,
-                noise_var=training_cfg["noise_var"],
-                num_examples=training_cfg["num_examples"],
-                eval_batch_size=training_cfg["eval_batch_size"],
+                noise_var=training_cfg.noise_var,
+                num_examples=training_cfg.num_examples,
+                eval_batch_size=training_cfg.eval_batch_size,
                 device=device,
             )
             metrics["num_tasks"] = int(num_tasks)
@@ -232,7 +234,7 @@ def run_sweep_parallel(
     task_sizes: List[int],
     num_tasks_list: List[int],
     model_cfg: ModelConfig,
-    base_training_cfg: Dict,
+    base_training_cfg: TrainConfig,
     num_gpus: int = None,
 ) -> Tuple[List[int], List[Dict[str, float]]]:
     """
@@ -381,21 +383,21 @@ def main():
         y_max=7,
     )
 
-    base_training_config = {
-        "device": device,
-        "task_size": args.task_size[0],  # placeholder; overwritten in sweep
-        "num_tasks": args.tasks[0],      # placeholder; overwritten in sweep
-        "noise_var": args.noise,
-        "num_examples": args.examples,
-        "learning_rate": args.lr,
-        "training_steps": args.steps,
-        "batch_size": args.batch,
-        "eval_batch_size": args.eval_batch,
-        "print_loss_interval": max(50, args.steps // 50),
-        "print_metrics_interval": max(200, args.steps // 10),
-        "n_checkpoints": args.checkpoints,
-        "logarithmic_checkpoints": True,
-    }
+    base_training_config = TrainConfig(
+        device=device,
+        task_size=args.task_size[0] if args.task_size else 1,
+        num_tasks=args.tasks[0] if args.tasks else 1,
+        noise_var=args.noise,
+        num_examples=args.examples,
+        learning_rate=args.lr,
+        training_steps=args.steps,
+        batch_size=args.batch,
+        eval_batch_size=args.eval_batch,
+        print_loss_interval=max(50, args.steps // 50),
+        print_metrics_interval=max(200, args.steps // 10),
+        n_checkpoints=args.checkpoints,
+        logarithmic_checkpoints=True,
+    )
 
     # Run sweep in parallel or serial mode
     if args.parallel and torch.cuda.device_count() > 1:

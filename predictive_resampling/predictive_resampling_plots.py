@@ -15,7 +15,7 @@ import torch
 import os
 from typing import Tuple, List
 from models.model import AutoregressivePFN
-from models.model_config import ModelConfig
+from models.config import ModelConfig
 from predictive_resampling.predictive_resampling import predictive_resampling_beta_chunked
 
 
@@ -352,7 +352,7 @@ def plot_predictive_resampling_from_checkpoints(
 
 # Example usage
 if __name__ == "__main__":
-    from models.model_config import ModelConfig
+    from models.config import ModelConfig
     
     # Example model configuration (should match the one used in training)
     model_config = ModelConfig(

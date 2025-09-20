@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 
 from models.model import AutoregressivePFN, bin_y_values, unbin_y_values
-from models.model_config import ModelConfig
+from models.config import ModelConfig, TrainConfig
 from samplers.tasks import RegressionSequenceDistribution
 from samplers.tasks import DiscreteTaskDistribution, GaussianTaskDistribution
 
@@ -47,7 +47,7 @@ def train_logarithmic_checkpoints(training_steps:int, n_checkpoints:int):
     return checkpoint_steps_set
 
 #%%
-def train(config: ModelConfig, training_config: dict, print_model_dimensionality: bool = False):
+def train(config: ModelConfig, training_config: TrainConfig, print_model_dimensionality: bool = False):
     """
     Initialise and train an InContextRegressionTransformer model, tracking
     various metrics.
@@ -57,13 +57,16 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
     
     # Pre-compute checkpoint steps if using logarithmic checkpoints
     checkpoint_steps_set = None
-    if training_config.get('n_checkpoints') is not None and training_config.get('logarithmic_checkpoints', False):
-        checkpoint_steps_set = train_logarithmic_checkpoints(training_config['training_steps'], training_config['n_checkpoints'])
+    if training_config.n_checkpoints is not None and training_config.logarithmic_checkpoints:
+        checkpoint_steps_set = train_logarithmic_checkpoints(
+            training_config.training_steps,
+            training_config.n_checkpoints,
+        )
 
     # model initialisation
     print("initialising model")
     # Determine device for this training run (allows per-process GPU assignment)
-    run_device = training_config.get('device', device)
+    run_device = training_config.device or device
     if run_device.startswith('cuda') and not torch.cuda.is_available():
         run_device = 'cpu'
     model = AutoregressivePFN(config).to(run_device)    
@@ -78,19 +81,19 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
     print("initialising data (pretrain)")
     pretrain_dist = RegressionSequenceDistribution(
         task_distribution=DiscreteTaskDistribution(
-            num_tasks=training_config['num_tasks'],
-            task_size=training_config['task_size'],
+            num_tasks=training_config.num_tasks,
+            task_size=training_config.task_size,
         ),
-        noise_variance=training_config['noise_var'],
+        noise_variance=training_config.noise_var,
     ).to(run_device)
 
     # initialise 'true' data source (for evaluation, including unseen tasks)
     print("initialising data (true)")
     true_dist = RegressionSequenceDistribution(
         task_distribution=GaussianTaskDistribution(
-            task_size=training_config['task_size'],
+            task_size=training_config.task_size,
         ),
-        noise_variance=training_config['noise_var'],
+        noise_variance=training_config.noise_var,
     ).to(run_device)
 
     # save task distributions for reproducibility/inspection
@@ -99,11 +102,11 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
     os.makedirs(checkpoints_dir, exist_ok=True)
     pretrain_td_path = os.path.join(
         checkpoints_dir,
-        f"{run_id}_pretrain_discrete_{training_config['num_tasks']}tasks_{training_config['task_size']}d.pt",
+        f"{run_id}_pretrain_discrete_{training_config.num_tasks}tasks_{training_config.task_size}d.pt",
     )
     true_td_path = os.path.join(
         checkpoints_dir,
-        f"{run_id}_true_gaussian_{training_config['task_size']}d.pt",
+        f"{run_id}_true_gaussian_{training_config.task_size}d.pt",
     )
     pretrain_dist.task_distribution.save(pretrain_td_path)
     true_dist.task_distribution.save(true_td_path)
@@ -113,33 +116,33 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
     # evaluator = ICLEvaluator(
     #     pretrain_dist=pretrain_dist,
     #     true_dist=true_dist,
-    #     max_examples=training_config['num_examples'],
-    #     eval_batch_size=training_config['eval_batch_size'],
+    #     max_examples=training_config.num_examples,
+    #     eval_batch_size=training_config.eval_batch_size,
     # )
     # initialise torch optimiser
     print("initialising optimiser and scheduler")
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=training_config['learning_rate'], # unused, overwritten by scheduler
+        lr=training_config.learning_rate,  # unused, overwritten by scheduler
     )
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer=optimizer,
-        max_lr=training_config['learning_rate'],
+        max_lr=training_config.learning_rate,
         anneal_strategy='linear',
-        total_steps=training_config['training_steps'],
+        total_steps=training_config.training_steps,
         pct_start=0.50,
-        div_factor=training_config['training_steps'] / 2 - 1,
-        final_div_factor=training_config['training_steps'] / 2 - 1,
+        div_factor=training_config.training_steps / 2 - 1,
+        final_div_factor=training_config.training_steps / 2 - 1,
         cycle_momentum=False, # N/A, but required to avoid error
     )
 
     # training loop
     print("starting training loop")
-    for step in tqdm(range(training_config['training_steps']), desc="training..."):
+    for step in tqdm(range(training_config.training_steps), desc="training..."):
         # training step
         xs, ys = pretrain_dist.get_batch(
-            num_examples=training_config['num_examples'],
-            batch_size=training_config['batch_size'],
+            num_examples=training_config.num_examples,
+            batch_size=training_config.batch_size,
         )
         
         # Convert continuous y values to discrete bin indices for training
@@ -161,18 +164,18 @@ def train(config: ModelConfig, training_config: dict, print_model_dimensionality
         scheduler.step()
 
         # log some metrics to stdout
-        if step % training_config['print_loss_interval'] == 0:
+        if step % training_config.print_loss_interval == 0:
             tqdm.write(f"step {step} loss:")
             tqdm.write(f"  {'batch/loss':<30}: {loss.item():.2f}")
 
-        if training_config['n_checkpoints'] is not None:
-            if training_config.get('logarithmic_checkpoints', False):
+        if training_config.n_checkpoints is not None:
+            if training_config.logarithmic_checkpoints:
                 if step in checkpoint_steps_set:
                     model.save(os.path.join(checkpoints_dir, f"{run_id}_model_step_{step}.pt"))
             else:
-                checkpoint_interval = training_config['training_steps'] // training_config['n_checkpoints']
+                checkpoint_interval = training_config.training_steps // training_config.n_checkpoints
                 if step % checkpoint_interval == 0:
-                    model.save(os.path.join(checkpoints_dir, f"{run_id}_model_{training_config['num_tasks']}tasks_step_{step}.pt"))
+                    model.save(os.path.join(checkpoints_dir, f"{run_id}_model_{training_config.num_tasks}tasks_step_{step}.pt"))
 
     return run_id, model, checkpoints_dir
 
@@ -193,22 +196,22 @@ if __name__ == "__main__":
     )
     
     # Training hyperparameters
-    training_config = {
-        'device': 'cuda',
-        'task_size': 2,
-        'num_tasks': 2,
-        'noise_var': .25,
-        'num_examples': 64,
-        'learning_rate': 0.003,
-        'training_steps': 1000,
-        'batch_size': 1024,
-        'eval_batch_size': 1024,
-        'print_loss_interval': 100,
-        'print_metrics_interval': 1000,
-        'n_checkpoints': 10,
-        'logarithmic_checkpoints': True,
-    }
-    
+    training_config = TrainConfig(
+        device='cuda',
+        task_size=2,
+        num_tasks=2,
+        noise_var=.25,
+        num_examples=64,
+        learning_rate=0.003,
+        training_steps=1000,
+        batch_size=1024,
+        eval_batch_size=1024,
+        print_loss_interval=100,
+        print_metrics_interval=1000,
+        n_checkpoints=10,
+        logarithmic_checkpoints=True,
+    )
+
     run_id, model, checkpoints_dir = train(model_config, training_config, print_model_dimensionality=True)
 
 

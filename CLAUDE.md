@@ -59,7 +59,7 @@ python predictive_resampling/predictive_resampling_test.py
 
 ## Model Configuration
 
-Model parameters are defined in `models/model_config.py` with the `ModelConfig` dataclass:
+Model parameters are defined in `models/config.py` with the `ModelConfig` dataclass:
 - `d_model`: 64 (transformer dimension)
 - `d_x`: 8 (input dimension)
 - `d_y`: 1 (output dimension)

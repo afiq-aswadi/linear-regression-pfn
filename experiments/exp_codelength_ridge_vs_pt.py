@@ -12,7 +12,7 @@ from scipy import stats
 import matplotlib.pyplot as plt
 
 from models.model import AutoregressivePFN
-from models.model_config import ModelConfig
+from models.config import ModelConfig
 from samplers.tasks import load_task_distribution_from_pt, RegressionSequenceDistribution
 from baselines import dmmse_predictor, ridge_predictor
 

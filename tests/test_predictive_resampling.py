@@ -7,7 +7,7 @@ from predictive_resampling.predictive_resampling import (
     predictive_resampling_beta,
     predictive_resampling_beta_chunked,
 )
-from models.model_config import ModelConfig
+from models.config import ModelConfig
 from models.model import unbin_y_values, bin_y_values
 
 

@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from models.model_config import ModelConfig
+from models.config import ModelConfig
 from models.model import unbin_y_values
 
 # ---------------------------------------------------------------

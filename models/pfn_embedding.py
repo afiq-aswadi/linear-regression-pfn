@@ -1,6 +1,6 @@
 #%%
 import torch.nn as nn
-from .model_config import ModelConfig
+from .config import ModelConfig
 from jaxtyping import Float, Array
 
 class JointEmbedding(nn.Module):

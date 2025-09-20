@@ -7,7 +7,7 @@ from jaxtyping import Float, Array
 from dataclasses import dataclass
 import numpy as np
 
-from .model_config import ModelConfig
+from .config import ModelConfig
 
 device = t.device("cuda" if t.cuda.is_available() else "mps" if t.backends.mps.is_available() else "cpu")
 

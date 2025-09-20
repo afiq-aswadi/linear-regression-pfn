@@ -17,7 +17,7 @@ import csv
 import pandas as pd  
 
 from models.model import AutoregressivePFN
-from models.model_config import ModelConfig
+from models.config import ModelConfig
 from samplers.tasks import load_task_distribution_from_pt, RegressionSequenceDistribution
 from predictive_resampling.predictive_resampling import predictive_resampling_beta_chunked, predictive_resampling_beta
 from baselines import dmmse_w_hat, ridge_w_hat

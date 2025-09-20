@@ -17,21 +17,21 @@ class DummyModel:
 
 @pytest.fixture()
 def base_training_cfg():
-    return {
-        "device": "cpu",
-        "task_size": 1,
-        "num_tasks": 1,
-        "noise_var": 0.1,
-        "num_examples": 2,
-        "learning_rate": 1e-3,
-        "training_steps": 1,
-        "batch_size": 1,
-        "eval_batch_size": 1,
-        "print_loss_interval": 1,
-        "print_metrics_interval": 1,
-        "n_checkpoints": None,
-        "logarithmic_checkpoints": False,
-    }
+    return train_parallel.TrainConfig(
+        device="cpu",
+        task_size=1,
+        num_tasks=1,
+        noise_var=0.1,
+        num_examples=2,
+        learning_rate=1e-3,
+        training_steps=1,
+        batch_size=1,
+        eval_batch_size=1,
+        print_loss_interval=1,
+        print_metrics_interval=1,
+        n_checkpoints=None,
+        logarithmic_checkpoints=False,
+    )
 
 
 def test_run_sweep_logs_eval_metrics(tmp_path, monkeypatch, caplog, base_training_cfg):
@@ -39,7 +39,8 @@ def test_run_sweep_logs_eval_metrics(tmp_path, monkeypatch, caplog, base_trainin
     checkpoint_dir.mkdir()
 
     def fake_train_once(config, training_config, print_model_dimensionality=False, plot_checkpoints=False):
-        run_id = f"run_{training_config['num_tasks']}"
+        assert isinstance(training_config, train_parallel.TrainConfig)
+        run_id = f"run_{training_config.num_tasks}"
         return run_id, DummyModel(), str(checkpoint_dir)
 
     def fake_evaluate_run(run_id, **kwargs):
@@ -75,6 +76,7 @@ def test_run_sweep_logs_eval_metrics(tmp_path, monkeypatch, caplog, base_trainin
 
     assert num_tasks == [3, 5]
     assert [r["num_tasks"] for r in results] == [3, 5]
+    assert base_training_cfg.num_tasks == 1  # ensure original config is unchanged
 
     log_file = tmp_path / "metrics.jsonl"
     train_parallel.log_results(results, log_file)
@@ -138,3 +140,12 @@ def test_run_sweep_parallel_balances_devices(monkeypatch, base_training_cfg):
 
     # Ensure results can be logged even without evaluator metrics (should fill NaNs)
     train_parallel.log_results(results, None)
+
+
+def test_train_config_indexing_for_backward_compatibility(base_training_cfg):
+    cfg = base_training_cfg.copy_with(num_tasks=7, training_steps=13)
+    # dict-style access still works for downstream utilities expecting legacy dicts
+    assert cfg["num_tasks"] == 7
+    assert cfg.get("training_steps") == 13
+    # Non-existent keys should fall back to None just like dict.get
+    assert cfg.get("unknown_key") is None

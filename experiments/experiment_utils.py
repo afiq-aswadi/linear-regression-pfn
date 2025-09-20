@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from scipy import stats
 
 from models.model import AutoregressivePFN, bin_y_values 
-from models.model_config import ModelConfig
+from models.config import ModelConfig
 from samplers.tasks import load_task_distribution_from_pt as _load_td
 
 
