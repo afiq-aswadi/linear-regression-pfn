@@ -5,24 +5,24 @@ Raventos et al. style experiment:
 - Train a model for each setting using the existing training loop
 - Reload the saved task distributions from checkpoints
 - Evaluate deltas and MSEs using the evaluator
-- Plot metrics vs number of pretraining tasks
+- Log metrics for both pretraining and true task distributions
 
 Usage (defaults chosen to run quickly on CPU):
-    python raventos_train.py
+    uv run raventos_train.py
 
 You can override defaults with flags, e.g.:
-    python raventos_train.py --steps 10000 --batch 512 --tasks 4 16 64 256 1024 4096 65536
+    uv run raventos_train.py --steps 10000 --batch 512 --tasks 4 16 64 256 1024 4096 65536
 
 """
 
 import argparse
+import json
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import torch.multiprocessing as mp
 import logging
 
 import torch
-import matplotlib.pyplot as plt
 
 from train import train as train_once
 from models.model_config import ModelConfig
@@ -31,7 +31,11 @@ from samplers.tasks import (
     DiscreteTaskDistribution,
     GaussianTaskDistribution,
     RegressionSequenceDistribution,
+    load_task_distribution_from_pt,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def train_single_config(args_tuple):
@@ -47,7 +51,12 @@ def train_single_config(args_tuple):
     training_cfg["num_tasks"] = int(num_tasks)
     training_cfg["device"] = device
     
-    print(f"Training on GPU {device_id}: num_tasks={num_tasks}, task_size={task_size}")
+    logger.info(
+        "Starting training on device %s | num_tasks=%s task_size=%s",
+        device,
+        num_tasks,
+        task_size,
+    )
     
     run_id, model, checkpoints_dir = train_once(
         config=model_cfg,
@@ -71,29 +80,8 @@ def train_single_config(args_tuple):
     
     metrics["num_tasks"] = int(num_tasks)
     metrics["task_size"] = int(task_size)
+    metrics.setdefault("run_id", run_id)
     return metrics
-
-
-def load_task_distribution_from_pt(file_path: str, device: str = "cpu"):
-    """
-    Load a task distribution saved by `samplers.tasks.*.save`.
-
-    Returns a concrete TaskDistribution instance on the requested device.
-    """
-    state = torch.load(file_path, map_location=device)
-    dist_type = state.get("type")
-    if dist_type == "discrete":
-        # Reconstruct and inject saved tasks
-        td = DiscreteTaskDistribution(
-            task_size=state["task_size"],
-            num_tasks=state["num_tasks"],
-            device=device,
-        )
-        td.tasks = state["tasks"].to(device)
-        return td
-    if dist_type == "gaussian":
-        return GaussianTaskDistribution(task_size=state["task_size"], device=device)
-    raise ValueError(f"Unrecognized task distribution type in {file_path}: {dist_type}")
 
 
 def evaluate_run(
@@ -157,7 +145,7 @@ def evaluate_run(
         metrics = evaluator(model)
     model.train()
 
-    # Ensure plain floats for downstream plotting/aggregation
+    # Ensure plain floats for downstream logging/aggregation
     clean_metrics: Dict[str, float] = {}
     for k, v in metrics.items():
         if isinstance(v, torch.Tensor):
@@ -209,7 +197,11 @@ def run_sweep(
             training_cfg["task_size"] = task_size
             training_cfg["num_tasks"] = int(num_tasks)
 
-            print(f"\n=== Training with num_tasks={num_tasks}, task_size={task_size} ===")
+            logger.info(
+                "Running training sweep | num_tasks=%s task_size=%s",
+                num_tasks,
+                task_size,
+            )
             run_id, model, checkpoints_dir = train_once(
                 config=model_cfg,
                 training_config=training_cfg,
@@ -217,7 +209,7 @@ def run_sweep(
                 plot_checkpoints=False,
             )
 
-            print("Evaluating deltas and MSEs...")
+            logger.info("Evaluating trained model | run_id=%s", run_id)
             metrics = evaluate_run(
                 run_id=run_id,
                 checkpoints_dir=checkpoints_dir,
@@ -230,6 +222,7 @@ def run_sweep(
             )
             metrics["num_tasks"] = int(num_tasks)
             metrics["task_size"] = int(task_size)
+            metrics.setdefault("run_id", run_id)
             results.append(metrics)
 
     return num_tasks_list, results
@@ -251,7 +244,7 @@ def run_sweep_parallel(
     if num_gpus == 0:
         raise RuntimeError("No CUDA GPUs available for parallel training")
     
-    print(f"Using {num_gpus} GPUs for parallel training")
+    logger.info("Using %d GPUs for parallel training", num_gpus)
     
     # Create all training configs
     configs = []
@@ -268,78 +261,65 @@ def run_sweep_parallel(
     return num_tasks_list, results
 
 
-def plot_results(num_tasks_list: List[int], results: List[Dict[str, float]], out_path: str):
-    """
-    Produce a compact figure showing memorisation -> generalisation trends.
-    """
-    # Sort results by num_tasks
-    results = sorted(results, key=lambda r: r["num_tasks"])
+def _build_log_records(metrics: Dict[str, float]) -> Dict[str, Dict[str, float]]:
+    """Split evaluator metrics into per-dataset dictionaries for logging."""
+    return {
+        "pretrain": {
+            "mse": metrics.get("mse/pretrain"),
+            "delta_dmmse": metrics.get("deltas/pretrain/delta_dmmse"),
+            "delta_ridge": metrics.get("deltas/pretrain/delta_ridge"),
+            "baseline_mse_dmmse": metrics.get("baseline/pretrain/mse_dmmse"),
+            "baseline_mse_ridge": metrics.get("baseline/pretrain/mse_ridge"),
+        },
+        "true": {
+            "mse": metrics.get("mse/true"),
+            "delta_dmmse": metrics.get("deltas/true/delta_dmmse"),
+            "delta_ridge": metrics.get("deltas/true/delta_ridge"),
+            "baseline_mse_dmmse": metrics.get("baseline/true/mse_dmmse"),
+            "baseline_mse_ridge": metrics.get("baseline/true/mse_ridge"),
+        },
+    }
 
-    xs = [r["num_tasks"] for r in results]
-    pretrain_mse = [r["mse/pretrain"] for r in results]
-    true_mse = [r["mse/true"] for r in results]
-    delta_pretrain_dmmse = [r["deltas/pretrain/delta_dmmse"] for r in results]
-    delta_true_ridge = [r["deltas/true/delta_ridge"] for r in results]
 
-    fig, axs = plt.subplots(2, 3, figsize=(12, 6), sharex=True)
+def log_results(results: List[Dict[str, float]], log_path: Optional[str] = None) -> None:
+    """Log evaluation metrics to stdout and optionally persist as JSON lines."""
+    file_records = []
+    for metrics in sorted(results, key=lambda r: (r["task_size"], r["num_tasks"])):
+        dataset_summaries = _build_log_records(metrics)
+        for dataset_name, dataset_values in dataset_summaries.items():
+            safe_values = {
+                key: (float(value) if value is not None else float("nan"))
+                for key, value in dataset_values.items()
+            }
+            logger.info(
+                "eval_result dataset=%s num_tasks=%s task_size=%s mse=%.6f delta_dmmse=%.6f delta_ridge=%.6f baseline_dmmse=%.6f baseline_ridge=%.6f",
+                dataset_name,
+                metrics["num_tasks"],
+                metrics["task_size"],
+                safe_values.get("mse"),
+                safe_values.get("delta_dmmse"),
+                safe_values.get("delta_ridge"),
+                safe_values.get("baseline_mse_dmmse"),
+                safe_values.get("baseline_mse_ridge"),
+            )
 
-    # Top row: Prompt from pretraining distribution
-    # (Left) MSE/D with baselines
-    axs[0, 0].plot(xs, pretrain_mse, marker="o", label="Model")
-    axs[0, 0].plot(xs, [r["baseline/pretrain/mse_dmmse"] for r in results], linestyle="--", label="dMMSE (theory)")
-    axs[0, 0].plot(xs, [r["baseline/pretrain/mse_ridge"] for r in results], linestyle=":", label="Ridge (theory)")
-    axs[0, 0].set_xscale("log", base=2)
-    axs[0, 0].set_ylabel("MSE/D")
-    axs[0, 0].set_title("Pretrain prompts: MSE/D")
-    axs[0, 0].legend()
-    axs[0, 0].grid(True, which="both", ls=":", alpha=0.5)
+            record = {
+                "dataset": dataset_name,
+                "num_tasks": metrics["num_tasks"],
+                "task_size": metrics["task_size"],
+                "metrics": dataset_values,
+            }
+            if "run_id" in metrics:
+                record["run_id"] = metrics["run_id"]
+            file_records.append(record)
 
-    # (Middle) Δ_PT,dMMSE
-    axs[0, 1].plot(xs, delta_pretrain_dmmse, marker="o")
-    axs[0, 1].set_xscale("log", base=2)
-    axs[0, 1].set_yscale("log")
-    axs[0, 1].set_title("Pretrain prompts: Δ_PT,dMMSE")
-    axs[0, 1].grid(True, which="both", ls=":", alpha=0.5)
-
-    # (Right) Δ_PT,Ridge on pretrain prompts for symmetry/inspection
-    axs[0, 2].plot(xs, [r["deltas/pretrain/delta_ridge"] for r in results], marker="o")
-    axs[0, 2].set_xscale("log", base=2)
-    axs[0, 2].set_yscale("log")
-    axs[0, 2].set_title("Pretrain prompts: Δ_PT,Ridge")
-    axs[0, 2].grid(True, which="both", ls=":", alpha=0.5)
-
-    # Bottom row: Prompt from true Gaussian distribution
-    # (Left) MSE/D with baselines
-    axs[1, 0].plot(xs, true_mse, marker="o", label="Model")
-    axs[1, 0].plot(xs, [r["baseline/true/mse_dmmse"] for r in results], linestyle="--", label="dMMSE (theory)")
-    axs[1, 0].plot(xs, [r["baseline/true/mse_ridge"] for r in results], linestyle=":", label="Ridge (theory)")
-    axs[1, 0].set_xscale("log", base=2)
-    axs[1, 0].set_xlabel("# Pretraining Tasks")
-    axs[1, 0].set_ylabel("MSE/D")
-    axs[1, 0].set_title("True prompts: MSE/D")
-    axs[1, 0].legend()
-    axs[1, 0].grid(True, which="both", ls=":", alpha=0.5)
-
-    # (Middle) Δ_PT,dMMSE for true prompts
-    axs[1, 1].plot(xs, [r["deltas/true/delta_dmmse"] for r in results], marker="o")
-    axs[1, 1].set_xscale("log", base=2)
-    axs[1, 1].set_yscale("log")
-    axs[1, 1].set_xlabel("# Pretraining Tasks")
-    axs[1, 1].set_title("True prompts: Δ_PT,dMMSE")
-    axs[1, 1].grid(True, which="both", ls=":", alpha=0.5)
-
-    # (Right) Δ_PT,Ridge for true prompts
-    axs[1, 2].plot(xs, delta_true_ridge, marker="o")
-    axs[1, 2].set_xscale("log", base=2)
-    axs[1, 2].set_yscale("log")
-    axs[1, 2].set_xlabel("# Pretraining Tasks")
-    axs[1, 2].set_title("True prompts: Δ_PT,Ridge")
-    axs[1, 2].grid(True, which="both", ls=":", alpha=0.5)
-
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    fig.savefig(out_path, dpi=200)
-    print(f"Saved plot to: {out_path}")
+    if log_path:
+        directory = os.path.dirname(log_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as handle:
+            for record in file_records:
+                handle.write(json.dumps(record) + "\n")
 
 
 def parse_args() -> argparse.Namespace:
@@ -368,16 +348,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--parallel", action="store_true", help="Enable multi-GPU parallel training")
     parser.add_argument("--gpus", type=int, default=None, help="Number of GPUs to use (default: all available)")
     parser.add_argument(
-        "--out",
+        "--log_file",
         type=str,
-        default=os.path.join(os.path.dirname(__file__), "plots", "raventos_experiment.png"),
-        help="Path to save output figure",
+        default=os.path.join(os.path.dirname(__file__), "logs", "raventos_eval.jsonl"),
+        help="Optional JSONL file to append evaluation metrics to",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
 
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
@@ -414,7 +399,7 @@ def main():
 
     # Run sweep in parallel or serial mode
     if args.parallel and torch.cuda.device_count() > 1:
-        print("Running in parallel mode")
+        logger.info("Running in parallel mode")
         num_tasks_list, results = run_sweep_parallel(
             task_sizes=args.task_size,
             num_tasks_list=args.tasks,
@@ -424,8 +409,10 @@ def main():
         )
     else:
         if args.parallel:
-            print("Warning: Parallel mode requested but only 1 or 0 GPUs available. Running in serial mode.")
-        print("Running in serial mode")
+            logger.warning(
+                "Parallel mode requested but only 1 or 0 GPUs available. Running in serial mode."
+            )
+        logger.info("Running in serial mode")
         num_tasks_list, results = run_sweep(
             task_sizes=args.task_size,
             num_tasks_list=args.tasks,
@@ -434,10 +421,8 @@ def main():
             device=device,
         )
 
-    plot_results(num_tasks_list, results, args.out)
+    log_results(results, args.log_file)
 
 
 if __name__ == "__main__":
     main()
-
-
